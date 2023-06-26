@@ -4,7 +4,7 @@
         All functions of AriumMSEval are now fully integrated into the main app. 
         Sample and Group specific scaling was moved to the Group Tab, Scaling and Transformation moved to General Options Tab
         changed transformation option "log" to "Natural log" for chlarification
-        Seperate option panels for Peak Alignment and Spectral Alignment.
+        Separate option panels for Peak Alignment and Spectral Alignment.
 	Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
 	Save and import project as custom file format.
 
