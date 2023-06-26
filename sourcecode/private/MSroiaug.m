@@ -62,13 +62,11 @@ for i=1:length(mzroi2)
             imz=imz+1;
             mzroi_aug(imz)=mzroi2(1,i);
             MSroi_aug(:,imz)=[zeros(nr1,1);MSroi2(:,i)];
-            disp([mzroi2(1,i),mzroi_aug(imz)])
         else
 
             imzn=imzn+1;
             mzroi_non(imzn)=mzroi2(1,i);
             MSroi_non(:,imzn)=[zeros(nr1,1);MSroi2(:,i)];
-            disp([mzroi2(1,i),mzroi_non(imzn)])
         end
     end
 end
