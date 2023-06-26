@@ -5,8 +5,8 @@
         Sample and Group specific scaling was moved to the Group Tab, Scaling and Transformation moved to General Options Tab
         changed transformation option "log" to "Natural log" for chlarification
         Seperate option panels for Peak Alignment and Spectral Alignment.
-	    Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
-	    Save and import project as custom file format.
+	Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
+	Save and import project as custom file format.
 
     It is now possible to define the following settings for each group separately:
         Internal standard processing options
@@ -21,19 +21,19 @@
         Shorter measurements are now expanded to the size of the longest measurement by appending blank scans, rather than truncating all measurements to the size of the smallest.
         Input units are now displayed inside edit fields.
         The average number of scans and the average scan rate will be displayed for the data files in a group after file selection.
-	    It is now possible to augment groups with different number of files.
-	    Unaugmented groups can be processed alongside augmented groups.
+	It is now possible to augment groups with different number of files.
+	Unaugmented groups can be processed alongside augmented groups.
         Added option for log10, cube root and reciprocal transformation.	
-	    Transformation and scaling can be changed after processing.
+	Transformation and scaling can be changed after processing.
         After processing, a table with the following feature data opens automatically: 
         ID, feature name (M@RT), intensity of individual measurements, average intensity, standard deviation, fold change, p-value, unique feature in group,
         feature not found in reference, occurrence per group, occurrence in all groups, Mass [M] and retention time [s].
         
     New Plots:
         Feature intensity distribution plot after applied transformation and scaling 
-	    p-Value distribution plot
-	    Normal propability plot for feature intensity after applied transformation and scaling.
-	    Plot Feature: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
+	p-Value distribution plot
+	Normal probability plot for feature intensity after applied transformation and scaling.
+	Plot Feature: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
 
     Minor Bugfixes:
         Calculation error for NH3 neutral loss masses.
