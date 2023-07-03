@@ -45,7 +45,6 @@ roicell{1,2}=[];
 roicell{1,3}=[];
 roicell{1,4}=[];
 nmzroi=1;
-close all
 
 % looking for mzroi values  
 

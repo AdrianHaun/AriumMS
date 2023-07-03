@@ -32,8 +32,9 @@ classdef FeatData
         FoldChanges                 (1,:) cell
         FullFoldChanges             (1,:) cell
         VSNaming                    (1,:) cell
-        FoundInReferenceGroup       (1,:) cell    
-           
+        FoundInReferenceGroup       (1,:) cell  
+        OriginalGroup               (:,:) string
+        CombinedSampleNames         (1,:) cell 
     end
 
     methods
@@ -50,6 +51,8 @@ classdef FeatData
             obj.EntropyArray = FullOutput.EntropyStorage;
             obj.Signal2NoiseArray = FullOutput.Signal2NoiseStorage;
             obj.XIC = FullOutput.XIC;
+            obj.CombinedSampleNames = FullOutput.SampleNames;
+            obj.OriginalGroup = FullOutput.OriginalGroup;
             % get number of Occurences per Grpup
             Subgroups = obj.FullUnscaledIntensityArray;
             Subgroups(Subgroups==0)=NaN;

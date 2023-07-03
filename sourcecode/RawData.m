@@ -168,7 +168,6 @@ classdef RawData
             end
             % compress peaklist by removing masses with intensity < 100;
             PeaksMS1 = DataCleanUp(PeaksMS1);
-
             PeaksMS2 = DataCleanUp(PeaksMS2);
             % store data
             obj.nScans = cellfun(@numel,timesMS1);
@@ -283,8 +282,8 @@ classdef RawData
             if obj.BLKSubtraction == true
                 obj.ROIMatBLK(:,id) = [];
             end
-            obj.ROIMat = sparse(MStemp);
             mzroi(id) = [];
+            obj.ROIMat = sparse(MStemp);
             obj.ROImzVec = mzroi;
             obj.timeVec = round(vertcat(time{:}),1);
             clearvars -except obj
@@ -313,7 +312,8 @@ classdef RawData
             end
 
             % Integrate all Peaks
-            IntegrationData = obj.CWTIntegrate(obj.ROIMat,obj.timeVec);
+            IDX = true(1,size(obj.ROIMat,2));
+            IntegrationData = obj.CWTIntegrate(IDX);
             %Calculate number of removed features
             obj.MinWidthFiltered = sum(vertcat(IntegrationData{5,:}),"all");
             obj.MaxWidthFiltered = sum(vertcat(IntegrationData{6,:}),"all");
@@ -361,6 +361,8 @@ classdef RawData
             Output.FeatIdentifiers(:,2) = round(Output.FeatIdentifiers(:,2),1);
             Output = obj.GroupAndSampleScaling(Output);
             Output.DataSize = size(Output.IntensityStorage,1);
+            Output.OriginalGroup = repmat(obj.GroupName,size(Output.FeatIdentifiers,1),1);
+            Output.SampleNames = obj.FileNames;
         end
 
         %% helper functions
@@ -434,8 +436,7 @@ classdef RawData
             obj.ISMass(dif)=[];
             % extract relevant columns and perform Peak Picking and
             % Integration
-            ISROI = obj.ROIMat(:,ISid);
-            ISIntegrationData = obj.CWTIntegrate(ISROI,obj.timeVec);
+            ISIntegrationData = obj.CWTIntegrate(ISid);
             % assign Peaks to Sample
             ISIntegrationData = obj.AssignRT2SampleFile(ISIntegrationData);
             % filter multiple Peaks for one sample
@@ -505,23 +506,26 @@ classdef RawData
             end
         end
 
-        function IntResults = CWTIntegrate(obj,ROIMat,TimeVec)
+        function IntResults = CWTIntegrate(obj,Index)
+            Mat = obj.ROIMat(:,Index);
             maxSN = obj.minSignalNoise;
             % prepare wavelet filterbank
             MinPWDataPoints=round(obj.minWidth/obj.ScanFrequency);
             MaxPWDataPoints=round(obj.maxWidth/obj.ScanFrequency);
             MinPWFrequency=1/MinPWDataPoints;
             MaxPWFrequency=1/MaxPWDataPoints;
-            filterBank = cwtfilterbank("SignalLength",numel(TimeVec),"WaveletParameters",[3 4],"VoicesPerOctave",32,"FrequencyLimits",[MaxPWFrequency MinPWFrequency]);
+            times = obj.timeVec;
+            filterBank = cwtfilterbank("SignalLength",numel(times),"WaveletParameters",[3 4],"VoicesPerOctave",16,"FrequencyLimits",[MaxPWFrequency MinPWFrequency]);
             % calculate EIC derivatives and store as sparse
-            ROIMat = sparse(ROIMat);
-            smoothed = sparse(smoothdata(ROIMat,"gaussian","omitnan","SmoothingFactor",0.075));
-            Noise = std(ROIMat-smoothed);
+            smoothed = sparse(smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.075));
+            Noise = std(Mat-smoothed);
             Diff2 = diff(smoothed,2);
-            Diff2(length(TimeVec),:) = 0; %expand to original size
+            Diff2(length(times),:) = 0; %expand to original size
             Diff2 = sparse(Diff2);
-            IntResults=cell(8,size(ROIMat,2)); %preallocate output
-            parfor id=1:size(ROIMat,2)
+            IntResults=cell(8,size(Mat,2)); %preallocate output
+            % delete(gcp('nocreate'));
+            % parpool("Threads");
+            parfor id=1:size(Mat,2)
                 % extract relevent Peak data
                 tempResults = IntResults(:,id);
                 %% wavelet transform
@@ -533,8 +537,8 @@ classdef RawData
                 isolatedPeak(~RTID)=0;
                 [~,locs,~,~] = findpeaks(isolatedPeak,'WidthReference','halfheight');
                 %find initial border locations
-                imMin=sum(imextendedmin(CWT,0.1));
-                [~,borders,~,~] = findpeaks(imMin);
+                [~,borders,~,~] = findpeaks(sum(imextendedmin(CWT,0.1)));
+                CWT = [];
                 peaks=zeros(numel(locs),3);
                 peaks(:,1)=locs';
                 %sort borders to RT
@@ -550,11 +554,11 @@ classdef RawData
                 peaks(idx,:)=[];
 
                 % Correct Peak Borders
-                peaks = CWTBorderCorrection(peaks,ROIMat(:,id),smoothed(:,id));
+                peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
 
                 %get final peak location and height
                 for n=1:size(peaks,1)
-                    EICtemp = full(ROIMat(:,id));
+                    EICtemp = full(Mat(:,id));
                     EICtemp(1:peaks(n,2)-1)=0;
                     EICtemp(peaks(n,3)+1:end)=0;
                     [peaks(n,4),peaks(n,1)]=max(EICtemp);
@@ -620,21 +624,22 @@ classdef RawData
                 end
                 %% entropy calculation
                 if isempty(peaks)==false
-                    Entropy = CalculatePeakEntropy(peaks,ROIMat(:,id));
+                    Entropy = CalculatePeakEntropy(peaks,Mat(:,id));
                 else
                     Entropy = 0;
                 end
                 %% integrate and store results
                 Areas=zeros(size(peaks,1),1);
+                EIC = full(Mat(:,id));
                 for n=1:size(peaks,1)
-                    Areas(n,1)=trapz(ROIMat(peaks(n,2):peaks(n,3),id));
+                    Areas(n,1)=trapz(EIC(peaks(n,2):peaks(n,3)));
                 end
                 if isempty(peaks)==false
                     tempResults{1,1}=peaks(:,4);
                     tempResults{2,1}=[Areas,peaks(:,2),peaks(:,3)];
-                    tempResults{3,1}=[peaks(:,1),TimeVec(peaks(:,1))];
+                    tempResults{3,1}=[peaks(:,1),times(peaks(:,1))];
                     tempResults{4,1}=[Entropy,SN];
-                    tempResults{8,1}= ROIMat(:,id);
+                    tempResults{8,1}= Mat(:,id);
                 end
                 IntResults(:,id)=tempResults;
             end
