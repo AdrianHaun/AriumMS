@@ -8,13 +8,14 @@ classdef FeatData
 
     properties
         GroupName                   (1,:) string
+        AbstractGroupName           (1,:) string
         FullUnscaledIntensityArray  (:,:) double
         CleanFullIntensityArray     (:,:) double
         IntensityArrayWithUniques   (:,:) double
         IntensityArrayNoUniques     (:,:) double
         IdentifierArray             (:,:) double
         IdentifierArrayNoUniques    (:,:) double
-        XIC                         (:,1) cell 
+        XIC                         (:,:) cell 
         NameStringArray             (:,:) string
         NameStringArrayNoUniques    (:,:) string
         RetentionTimeArray          (:,:) double
@@ -34,6 +35,7 @@ classdef FeatData
         VSNaming                    (1,:) cell
         FoundInReferenceGroup       (1,:) cell  
         OriginalGroup               (:,:) string
+        InGroup                     (:,:) string
         CombinedSampleNames         (1,:) cell 
     end
 
@@ -41,7 +43,8 @@ classdef FeatData
         function obj = FeatData(FullOutput)
             %UNTITLED Construct an instance of this class
             %   Detailed explanation goes here
-            obj.GroupName = FullOutput.GroupName;
+            obj.GroupName = FullOutput.GroupName(1,:);
+            obj.AbstractGroupName =  "Augmented Group " + FullOutput.GroupName(2,:);
             obj.IdentifierArray = FullOutput.FeatIdentifiers;
             obj.NameStringArray = obj.IdentifierArray(:,1) + "@" + obj.IdentifierArray(:,2) + "s";
             obj.FullUnscaledIntensityArray = FullOutput.IntensityStorage;
@@ -53,6 +56,16 @@ classdef FeatData
             obj.XIC = FullOutput.XIC;
             obj.CombinedSampleNames = FullOutput.SampleNames;
             obj.OriginalGroup = FullOutput.OriginalGroup;
+            obj.InGroup = join(FullOutput.OriginalGroup,",");
+            % Initialize mergedString array
+            mergedString = cell(size(FullOutput.OriginalGroup, 1), 1);
+            % Iterate through each row
+            for i = 1:size(FullOutput.OriginalGroup, 1)
+                % Concatenate non-empty strings with the appropriate delimiter
+                mergedString{i} = strjoin(FullOutput.OriginalGroup(i, ~cellfun('isempty', FullOutput.OriginalGroup(i, :))), ', ');
+            end
+            obj.InGroup = string(mergedString);
+            
             % get number of Occurences per Grpup
             Subgroups = obj.FullUnscaledIntensityArray;
             Subgroups(Subgroups==0)=NaN;
@@ -102,6 +115,8 @@ classdef FeatData
             for g=1:size(obj.GroupName,2)
                 Averages = obj.AverageIntensities;
                 AllNames = obj.GroupName;
+                idx = contains(AllNames,"+");
+                AllNames(idx) = obj.AbstractGroupName(idx);
                 ActiveGroup = Averages(:,g);
                 ActiveName = AllNames(g);
                 AllNames(g) = [];

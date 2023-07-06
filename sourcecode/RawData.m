@@ -361,7 +361,7 @@ classdef RawData
             Output.FeatIdentifiers(:,2) = round(Output.FeatIdentifiers(:,2),1);
             Output = obj.GroupAndSampleScaling(Output);
             Output.DataSize = size(Output.IntensityStorage,1);
-            Output.OriginalGroup = repmat(obj.GroupName,size(Output.FeatIdentifiers,1),1);
+            Output.FoundInGroup = repmat(obj.GroupName,size(Output.FeatIdentifiers,1),1);
             Output.SampleNames = obj.FileNames;
         end
 
@@ -783,7 +783,7 @@ classdef RawData
                 for k=1:size(idxMat,1)
                     if idxMat(k,n)~=0
                         %check RT
-                        [~,matchRT{k,n}]=ismembertol(RTs{n},RTs{idxMat(k,n)},obj.RTTol,'DataScale',1);
+                        [~,matchRT{k,n}]=ismembertol(RTs{n},RTs{idxMat(k,n)},1,'DataScale',1);
                     end
                 end
             end
@@ -877,7 +877,7 @@ classdef RawData
                 for k=1:size(idxMat,1)
                     if idxMat(k,n)~=0
                         %check RT
-                        [~,matchRT{k,n}]=ismembertol(RTs{n},RTs{idxMat(k,n,1)},obj.RTTol,'DataScale',1);
+                        [~,matchRT{k,n}]=ismembertol(RTs{n},RTs{idxMat(k,n,1)},1,'DataScale',1);
                     end
                 end
             end

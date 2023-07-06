@@ -28,6 +28,7 @@
         feature not found in reference, occurrence per group, occurrence in all groups, Mass [M] and retention time [s].
         Added option for log10, cube root and reciprocal transformation.	
 	    Transformation and scaling can be changed after processing. Using the "Apply Changes Button" recalculates the results and displays a new output table.
+        The number of loadings displayed in biplots can now be selected. The selection plots the number of loadings with the largest sum of the first three principal components.
         
     New Plots:
         Feature intensity distribution plot after applied transformation and scaling 
