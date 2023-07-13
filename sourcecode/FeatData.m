@@ -44,7 +44,9 @@ classdef FeatData
             %UNTITLED Construct an instance of this class
             %   Detailed explanation goes here
             obj.GroupName = FullOutput.GroupName(1,:);
-            obj.AbstractGroupName =  "Augmented Group " + FullOutput.GroupName(2,:);
+            if size(FullOutput.GroupName,1)<1
+                obj.AbstractGroupName =  "Augmented Group " + FullOutput.GroupName(2,:);
+            end
             obj.IdentifierArray = FullOutput.FeatIdentifiers;
             obj.NameStringArray = obj.IdentifierArray(:,1) + "@" + obj.IdentifierArray(:,2) + "s";
             obj.FullUnscaledIntensityArray = FullOutput.IntensityStorage;
@@ -54,10 +56,14 @@ classdef FeatData
             obj.EntropyArray = FullOutput.EntropyStorage;
             obj.Signal2NoiseArray = FullOutput.Signal2NoiseStorage;
             obj.XIC = FullOutput.XIC;
-            obj.CombinedSampleNames = FullOutput.SampleNames;
-            obj.OriginalGroup = FullOutput.OriginalGroup;
-            obj.InGroup = join(FullOutput.OriginalGroup,",");
-            % Initialize mergedString array
+            if iscell(FullOutput.SampleNames)
+                obj.CombinedSampleNames = FullOutput.SampleNames;
+            else
+                obj.CombinedSampleNames{1}=FullOutput.SampleNames;
+            end
+            if isfield(FullOutput,"OriginalGroup")
+                obj.OriginalGroup = FullOutput.OriginalGroup;
+                % Initialize mergedString array
             mergedString = cell(size(FullOutput.OriginalGroup, 1), 1);
             % Iterate through each row
             for i = 1:size(FullOutput.OriginalGroup, 1)
@@ -65,7 +71,10 @@ classdef FeatData
                 mergedString{i} = strjoin(FullOutput.OriginalGroup(i, ~cellfun('isempty', FullOutput.OriginalGroup(i, :))), ', ');
             end
             obj.InGroup = string(mergedString);
-            
+            else
+                obj.OriginalGroup = repmat(obj.GroupName,size(obj.NameStringArray,1),1);
+                obj.InGroup = obj.OriginalGroup;
+            end
             % get number of Occurences per Grpup
             Subgroups = obj.FullUnscaledIntensityArray;
             Subgroups(Subgroups==0)=NaN;

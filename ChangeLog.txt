@@ -34,7 +34,7 @@
         Feature intensity distribution plot after applied transformation and scaling 
 	    p-Value distribution plot
 	    Normal probability plot for feature intensity after applied transformation and scaling.
-	    Plot Feature: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
+	    Plot Integration: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
 
     Minor Bugfixes:
         Calculation error for NH3 neutral loss masses.
