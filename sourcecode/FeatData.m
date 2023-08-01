@@ -89,7 +89,12 @@ classdef FeatData
                 othergroups(:,n) = [];
                 obj.UniqueFeature(:,n) = currentgroup > 0 & sum(othergroups,2) == 0;
             end
-
+            %remove  unnecessary delimiters in InGroup
+            for n=1:size(obj.InGroup,1)
+                ExtractedString=split(obj.InGroup(n),",");
+                ExtractedString(ExtractedString=="")=[];
+                obj.InGroup(n) = join(ExtractedString,",");
+            end
 %remove Features with no counterpart in other group
             idx=any(obj.UniqueFeature,2);
             obj.IntensityArrayNoUniques = obj.FullUnscaledIntensityArray(~idx,:);
@@ -262,7 +267,7 @@ classdef FeatData
                 [SampleGroupID,ReferenceGroupID]=find(Ref);
                 if any(any(Ref,2))==true
                     notInRef=cell(size(Subgroups));
-                    text = strings(size(obj.IntensityArrayWithUniques,1),1);
+                    text = strings(size(obj.FullUnscaledIntensityArray,1),1);
                     for n=1:length(SampleGroupID)
                         ref=AverageIntensityCell{ReferenceGroupID(n)};
                         samp=Subgroups{SampleGroupID(n)};
@@ -280,7 +285,7 @@ classdef FeatData
                     idx = cellfun(@(x) isempty(x), obj.FoundInReferenceGroup);
                     text = "no Reference Group";
                     text = repmat(text,size(obj.IntensityArrayWithUniques,1),1);
-                    obj.FoundInReferenceGroup{idx} = text;
+                    obj.FoundInReferenceGroup(idx) = {text};
                 else
                     text="no Reference Group";
                     notInRef{1,1}=repmat(text,size(obj.IntensityArrayWithUniques,1),1);
