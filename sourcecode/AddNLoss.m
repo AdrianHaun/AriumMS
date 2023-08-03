@@ -69,7 +69,8 @@ classdef AddNLoss
                 "ValueDisplayFormat","%.1f %%",...
                 Position=[415,30,50,20],...
                 Limits=[0,100],...
-                Value=CallingData.CosSim*100);
+                Value=CallingData.CosSim*100,...
+                Tooltip="Minimum peak shape similarity between original peak and possible adduct peak. Calculated as cosine similarity");
             obj.CosSimLabel = uilabel(obj.UIFigure,"Text",["minimum","Peak Similarity"],...
                 "Position",[325,30,85,30],...
                 "HorizontalAlignment","left");
@@ -271,11 +272,6 @@ classdef AddNLoss
             [obj.SmolArray(:).Value] = deal(val{:});
         end
 
-        function outputArg = AcceptEvent(obj,inputArg)
-            %METHOD1 Summary of this method goes here
-            %   Detailed explanation goes here
-            outputArg = obj.Property1 + inputArg;
-        end
         function obj = AllSmolChanged(obj,src,event)
             val = {event.Value};
             val = repmat(val,1,size(obj.SmolArray,2));

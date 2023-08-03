@@ -7,6 +7,7 @@
         Separate option panels for Peak Alignment and Spectral Alignment.
 	    Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
 	    Save and import project as custom file format.
+        Updated Tooltips for each setting.
 
     It is now possible to define the following settings for each group separately:
         Internal standard processing options
@@ -20,7 +21,8 @@
         The Start Time and End Time fields now refer to the measurement with the most scans and no longer to the shortest.
         Shorter measurements are now expanded to the size of the longest measurement by appending blank scans, rather than truncating all measurements to the size of the smallest.
         Input units are now displayed inside edit fields.
-        The average number of scans and the average scan rate will be displayed for the data files in a group after file selection.
+        The average number of scans and the average scan rate will be displayed for the data files in a group after file selection. 
+        Selected files are now displayed as tooltips for the file info text.
 	    It is now possible to augment groups with different number of files.
 	    Unaugmented groups can be processed alongside augmented groups.
         After processing, a table with the following feature data opens automatically: 
@@ -29,6 +31,7 @@
         Added option for log10, cube root and reciprocal transformation.	
 	    Transformation and scaling can be changed after processing. Using the "Apply Changes Button" recalculates the results and displays a new output table.
         The number of loadings displayed in biplots can now be selected. The selection plots the number of loadings with the largest sum of the first three principal components.
+        Change in Copy settings to all groups: Instead of automatically copying all settings to all groups, you can now select which setting groups are copied.
         
     New Plots:
         Feature intensity distribution plot after applied transformation and scaling 
