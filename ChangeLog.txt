@@ -32,7 +32,9 @@
 	    Transformation and scaling can be changed after processing. Using the "Apply Changes Button" recalculates the results and displays a new output table.
         The number of loadings displayed in biplots can now be selected. The selection plots the number of loadings with the largest sum of the first three principal components.
         Change in Copy settings to all groups: Instead of automatically copying all settings to all groups, you can now select which setting groups are copied.
-        
+        Added relative mass tolerance, for all relevant processing steps (ROI search, Peak Picking, Adduct/Isotope/Contaminant Filter, Internal Standard, Group Merging).
+        Tolerances for Group merging can now be selected seperatly inside the Define Augmentation and Referencing window.
+
     New Plots:
         Feature intensity distribution plot after applied transformation and scaling 
 	    p-Value distribution plot
