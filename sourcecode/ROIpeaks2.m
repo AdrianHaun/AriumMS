@@ -1,5 +1,4 @@
 function [mzroi,MSroi,roicell]=ROIpeaks2(peaks,thresh,mzerror,ErrorUnit,minroi,nrows,time)
-% function [mzroi,MSroi,roicell]=ROIpeaksnew(peaks,thresh,mzerror,minroi,nrows,time)
 % 
 % This function allows building a MS data matrix from structure variable peaks 
 % selecting only the regions of interest (roi). These regions are defined acording to 
@@ -33,11 +32,8 @@ function [mzroi,MSroi,roicell]=ROIpeaks2(peaks,thresh,mzerror,ErrorUnit,minroi,n
 % e.g. mzroi,MSroi,roicell]=ROIpeaksnew(peaks,1000,0.01,10,1899,time);
 % where thresh=1000, mzerror=0.01 and minroi=10
 % background in MSroi is MSroi=randn(nrows,nmzroi).*0.3*thresh;
-%%
-% [mzroi,MSroi,roicell]=ROIpeaks(peaks,thresh,mzerror,minroi,nrows,time)
-
 % Adjustments: Addition of random noise removed
-
+% added relative mz error [ppm] support
 mzroi=[];
 MSroi=[];
 roicell{1,1}=[];
