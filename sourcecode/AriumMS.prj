@@ -1,0 +1,120 @@
+<deployment-project plugin="plugin.apptool" plugin-version="1.0">
+  <configuration file="D:\MatLab Data\AriumMS_1.1dev\sourcecode\AriumMS.prj" location="D:\MatLab Data\AriumMS_1.1dev\sourcecode" name="AriumMS" target="target.mlapps" target-name="Package App">
+    <param.appname>AriumMS</param.appname>
+    <param.authnamewatermark>Adrian Haun</param.authnamewatermark>
+    <param.email>adrian.haun@hs-aalen.de</param.email>
+    <param.company>Aalen University</param.company>
+    <param.icon />
+    <param.icons />
+    <param.summary />
+    <param.description />
+    <param.screenshot>C:\Users\03413\AppData\Local\Temp\tp99704a3a_34f7_4641_891e_d1dfbb5cc2d3.png</param.screenshot>
+    <param.version>1.1</param.version>
+    <param.products.name />
+    <param.products.id />
+    <param.products.version />
+    <param.platforms>
+      <item>glnxa64</item>
+      <item>win64</item>
+      <item>maci64</item>
+    </param.platforms>
+    <param.output>${PROJECT_ROOT}</param.output>
+    <param.guid>6c5af63d-3281-471b-a045-9335e27dbd6c</param.guid>
+    <unset>
+      <param.authnamewatermark />
+      <param.email />
+      <param.company />
+      <param.icon />
+      <param.icons />
+      <param.summary />
+      <param.description />
+      <param.products.name />
+      <param.products.id />
+      <param.products.version />
+      <param.output />
+    </unset>
+    <fileset.main>
+      <file>${PROJECT_ROOT}\AriumMS.mlapp</file>
+    </fileset.main>
+    <fileset.depfun>
+      <file>${PROJECT_ROOT}\AddNLoss.m</file>
+      <file>${PROJECT_ROOT}\AddNLossOptions.m</file>
+      <file>${PROJECT_ROOT}\AlignPeaks.m</file>
+      <file>${PROJECT_ROOT}\AutoROI.m</file>
+      <file>${PROJECT_ROOT}\BaseCorrOptions.m</file>
+      <file>${PROJECT_ROOT}\CalculatePeakEntropy.m</file>
+      <file>${PROJECT_ROOT}\CorrectBaseline.m</file>
+      <file>${PROJECT_ROOT}\CWTBorderCorrection.m</file>
+      <file>${PROJECT_ROOT}\DataCleanUp.m</file>
+      <file>${PROJECT_ROOT}\EvaluationOptions.m</file>
+      <file>${PROJECT_ROOT}\FeatData.m</file>
+      <file>${PROJECT_ROOT}\GolayOptions.m</file>
+      <file>${PROJECT_ROOT}\IntegrationOptions.m</file>
+      <file>${PROJECT_ROOT}\ISOptions.m</file>
+      <file>${PROJECT_ROOT}\MainOptions.m</file>
+      <file>${PROJECT_ROOT}\MassListData.mat</file>
+      <file>${PROJECT_ROOT}\MSAlignOptions.m</file>
+      <file>${PROJECT_ROOT}\MSroiaug2.m</file>
+      <file>${PROJECT_ROOT}\mzMLinfo.m</file>
+      <file>${PROJECT_ROOT}\NegAdducts.m</file>
+      <file>${PROJECT_ROOT}\PeakAlignOptions.m</file>
+      <file>${PROJECT_ROOT}\PosAdducts.m</file>
+      <file>${PROJECT_ROOT}\RawData.m</file>
+      <file>${PROJECT_ROOT}\readmzML.m</file>
+      <file>${PROJECT_ROOT}\readmzXML.m</file>
+      <file>${PROJECT_ROOT}\ROIOptions.m</file>
+      <file>${PROJECT_ROOT}\ROIpeaks2.m</file>
+      <file>${PROJECT_ROOT}\SampScaleOptions.m</file>
+      <file>${PROJECT_ROOT}\SmoothPeaks.m</file>
+      <file>${PROJECT_ROOT}\zipmat.mexw64</file>
+      <file>${PROJECT_ROOT}\zmat.m</file>
+    </fileset.depfun>
+    <fileset.resources>
+      <file>${PROJECT_ROOT}\zipmat.mexa64</file>
+      <file>${PROJECT_ROOT}\zipmat.mexmaci64</file>
+    </fileset.resources>
+    <fileset.package />
+    <build-deliverables>
+      <file location="D:\MatLab Data\AriumMS_1.1dev" name="sourcecode" optional="false">D:\MatLab Data\AriumMS_1.1dev\sourcecode</file>
+    </build-deliverables>
+    <workflow />
+    <matlab>
+      <root>C:\Program Files\MATLAB\R2023a</root>
+      <toolboxes>
+        <toolbox name="matlabcoder" />
+        <toolbox name="embeddedcoder" />
+        <toolbox name="gpucoder" />
+      </toolboxes>
+      <toolbox>
+        <matlabcoder>
+          <enabled>true</enabled>
+        </matlabcoder>
+      </toolbox>
+      <toolbox>
+        <embeddedcoder>
+          <enabled>true</enabled>
+        </embeddedcoder>
+      </toolbox>
+      <toolbox>
+        <gpucoder>
+          <enabled>true</enabled>
+        </gpucoder>
+      </toolbox>
+    </matlab>
+    <platform>
+      <unix>false</unix>
+      <mac>false</mac>
+      <windows>true</windows>
+      <win2k>false</win2k>
+      <winxp>false</winxp>
+      <vista>false</vista>
+      <linux>false</linux>
+      <solaris>false</solaris>
+      <osver>10.0</osver>
+      <os32>false</os32>
+      <os64>true</os64>
+      <arch>win64</arch>
+      <matlab>true</matlab>
+    </platform>
+  </configuration>
+</deployment-project>
