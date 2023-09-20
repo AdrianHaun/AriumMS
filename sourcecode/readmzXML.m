@@ -68,7 +68,7 @@ end
 [~,~,endian] = computer;
 %% data extraction
 %remove empty scans
-Scans=[S.msRun.scan.totIonCurrentAttribute]';
+Scans=[S.msRun.scan.peaksCountAttribute]';
 idx=Scans <= 0;
 S.msRun.scan(idx)=[];
 %get time and transform to numeric

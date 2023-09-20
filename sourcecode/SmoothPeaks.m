@@ -1,5 +1,7 @@
 function [MSroi,time] = SmoothPeaks(obj,MSroi,time)
-    % BSD 3-Clause License
+
+
+% BSD 3-Clause License
 % 
 % Copyright (c) 2022, Adrian Haun
 % All rights reserved.
@@ -28,6 +30,7 @@ function [MSroi,time] = SmoothPeaks(obj,MSroi,time)
 % CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 % OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 % OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 Frame = obj.FrameSize;
 Deg = obj.Degree;
 parfor id = 1:size(MSroi,1)

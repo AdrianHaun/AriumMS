@@ -73,7 +73,7 @@ classdef FeatData
             %UNTITLED Construct an instance of this class
             %   Detailed explanation goes here
             obj.GroupName = FullOutput.GroupName(1,:);
-            if size(FullOutput.GroupName,1)<1
+            if size(FullOutput.GroupName,1)>1
                 obj.AbstractGroupName =  "Augmented Group " + FullOutput.GroupName(2,:);
             end
             obj.IdentifierArray = FullOutput.FeatIdentifiers;
