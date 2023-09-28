@@ -550,14 +550,12 @@ properties
             Mat = obj.ROIMat(:,Index);
             maxSN = obj.minSignalNoise;
             % prepare wavelet filterbank
-            MinPWDataPoints=round(obj.minWidth/obj.ScanFrequency);
-            MaxPWDataPoints=round(obj.maxWidth/obj.ScanFrequency);
-            MinPWFrequency=1/MinPWDataPoints;
-            MaxPWFrequency=1/MaxPWDataPoints;
+            MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
+            MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
             times = obj.timeVec;
-            filterBank = cwtfilterbank("SignalLength",numel(times),"WaveletParameters",[3 4],"VoicesPerOctave",8,"FrequencyLimits",[MaxPWFrequency MinPWFrequency]);
+            filterBank = cwtfilterbank("SignalLength",numel(times),"WaveletParameters",[3 4],"VoicesPerOctave",8,"SamplingPeriod",seconds(obj.ScanFrequency),"PeriodLimits",[seconds(obj.minWidth) seconds(obj.maxWidth)]);
             % calculate EIC derivatives and store as sparse
-            smoothed = sparse(smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.2));
+            smoothed = sparse(smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1));
             Noise = std(Mat-smoothed);
             Diff2 = diff(smoothed,2);
             Diff2(length(times),:) = 0; %expand to original size
@@ -565,7 +563,7 @@ properties
             IntResults=cell(8,size(Mat,2)); %preallocate output
             % delete(gcp('nocreate'));
             % parpool("Threads");
-            for id=1:size(Mat,2)
+            parfor id=1:size(Mat,2)
                 % extract relevent Peak data
                 tempResults = IntResults(:,id);
                 %% wavelet transform
@@ -620,9 +618,10 @@ properties
                     idx=peaks(:,4)==0;
                     peaks(idx,:)=[];
                 end
-                %remove peaks with Peak maximum == border
+                %remove peaks with bad Peak asymmetry
                 if isempty(peaks)==false
-                    idx=ismember(peaks(:,1),peaks(:,2:3));
+                    idx= (peaks(:,3)-peaks(:,1))./(peaks(:,1)-peaks(:,2));
+                    idx = idx<0.3 | idx>3;
                     peaks(idx,:)=[];
                 end
                 %less than minimum peak width
