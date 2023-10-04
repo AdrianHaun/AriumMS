@@ -5,8 +5,8 @@
         Sample and Group specific scaling was moved to the Group Tab, Scaling and Transformation moved to General Options Tab
         changed transformation option "log" to "Natural log" for chlarification
         Separate option panels for Peak Alignment and Spectral Alignment.
-	    Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
-	    Save and import project as custom file format.
+	Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
+	Save and import project as custom file format.
         Updated Tooltips for each setting.
 
     It is now possible to define the following settings for each group separately:
@@ -16,30 +16,31 @@
 	
     New Features:
         Added custom file parser for .mzXML and .mzML files. 
-        Added compatibility for zlib compressed files
+        Added compatibility for zlib compressed files and 64bit encoded files.
         The Number of groups limit was removed, more groups can now be added via the "+ Tab".
         The Start Time and End Time fields now refer to the measurement with the most scans and no longer to the shortest.
         Shorter measurements are now expanded to the size of the longest measurement by appending blank scans, rather than truncating all measurements to the size of the smallest.
         Input units are now displayed inside edit fields.
         The average number of scans and the average scan rate will be displayed for the data files in a group after file selection. 
         Selected files are now displayed as tooltips for the file info text.
-	    It is now possible to augment groups with different number of files.
-	    Unaugmented groups can be processed alongside augmented groups.
+	It is now possible to augment groups with different number of files.
+	Unaugmented groups can be processed alongside augmented groups.
         After processing, a table with the following feature data opens automatically: 
         ID, feature name (M@RT), intensity of individual measurements, average intensity, standard deviation, fold change, p-value, unique feature in group,
         feature not found in reference, occurrence per group, occurrence in all groups, Mass [M] and retention time [s].
         Added option for log10, cube root and reciprocal transformation.	
-	    Transformation and scaling can be changed after processing. Using the "Apply Changes Button" recalculates the results and displays a new output table.
+	Transformation and scaling can be changed after processing. Using the "Apply Changes Button" recalculates the results and displays a new output table.
         The number of loadings displayed in biplots can now be selected. The selection plots the number of loadings with the largest sum of the first three principal components.
         Change in Copy settings to all groups: Instead of automatically copying all settings to all groups, you can now select which setting groups are copied.
         Added relative mass tolerance, for all relevant processing steps (ROI search, Peak Picking, Adduct/Isotope/Contaminant Filter, Internal Standard, Group Merging).
         Tolerances for Group merging can now be selected seperatly inside the Define Augmentation and Referencing window.
+	MS polarity is automatically determined after selecting group files. If files with different polarities are selected an error is displayed.
 
     New Plots:
         Feature intensity distribution plot after applied transformation and scaling 
-	    p-Value distribution plot
-	    Normal probability plot for feature intensity after applied transformation and scaling.
-	    Plot Integration: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
+	p-Value distribution plot
+	Normal probability plot for feature intensity after applied transformation and scaling.
+	Plot Integration: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
 
     Minor Bugfixes:
         Calculation error for NH3 neutral loss masses.

@@ -1,4 +1,4 @@
-function Peaklist =DataCleanUp(Peaklist,Timelist)
+function [Peaklist,Timelist] =DataCleanUp(Peaklist,Timelist)
 %Remove m/z with Intensity < 100 counts
 %   Removes all m/z values with intensity below thresh.
 

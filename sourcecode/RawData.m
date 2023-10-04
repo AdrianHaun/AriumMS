@@ -103,11 +103,15 @@ properties
         EvaluationParameter (1,1) string {mustBeMember(EvaluationParameter,["Area","Height"])} = "Area"
         %% DataStorage
         %Raw Data
+        PreviewTICs (:,1) cell
+        PreviewBPCs (:,1) cell
         PeakDataMS1 (:,1) cell
-        PeakDataMS2 (:,1) cell
+        PeakDataMSn (:,1) cell
         TimeDataMS1 (:,1) cell
-        TimeDataMS2 (:,1) cell
+        TimeDataMSn (:,1) cell
         Precursor   (:,1) cell
+        CollisionType   (:,1) cell
+        CollisionEnergy   (:,1) cell
         nScans      (:,1) double {mustBeInteger,mustBePositive}
         nScansPadded(:,1) double {mustBeInteger,mustBePositive}
         DataInfo    (:,4) double
@@ -142,7 +146,7 @@ properties
             %Construct an instance of this class
             obj.GroupName = "Group " + GroupCounter;
         end
-        function obj = DataCheck(obj)
+        function [obj,polarity] = DataCheck(obj)
             % Check Data, number of Scans, Start/End Times
             %Check minimum number of scans
             FileLoc=[obj.Files;obj.BlankFiles];
@@ -150,60 +154,82 @@ properties
             idx=cellfun(@isempty,FileLoc);
             FileLoc(idx)=[];
             info=zeros(length(FileLoc),4);
-            for n=1:length(FileLoc)
+            RetentionTimes = cell(length(FileLoc),1);
+            TIC = cell(length(FileLoc),1);
+            BPC = cell(length(FileLoc),1);
+            FileInfo =  struct('Polarity','N/A',...
+                                'NumberOfScansMS1',[],...
+                                'NumberOfScansMSn',[],...
+                                'StartTime',[],...
+                                'EndTime',[]);
+            parfor n=1:length(FileLoc)
                 %check filetype
                 test=strsplit(FileLoc(n),'.');
                 test=test(end);
                 switch test
                     case "mzML"
-                        struct = mzMLinfo(FileLoc{n});
-                        info(n,1)=struct.NumberOfScans;
-                        info(n,2)=struct.StartTime;
-                        info(n,3)=struct.EndTime;
-                        info(n,4)=(info(n,3)-info(n,2))/info(n,1);
+                        [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n}] = mzMLinfo(FileLoc{n});
                     case "mzXML"
-                        struct=mzxmlinfo(FileLoc{n});
-                        info(n,1)=struct.NumberOfScans;
-                        info(n,2)=sscanf(struct.StartTime, 'PT %f');
-                        info(n,3)=sscanf(struct.EndTime, 'PT %f');
-                        info(n,4)=(info(n,3)-info(n,2))/info(n,1);
+                        [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n}] = mzXMLinfo(FileLoc{n});
                 end
             end
+            obj.PreviewTICs = TIC;
+            obj.PreviewBPCs = BPC;
+            obj.TimeDataMS1 = RetentionTimes;
+            info(:,1)=[FileInfo.NumberOfScansMS1]+[FileInfo.NumberOfScansMSn];
+            info(:,2)=[FileInfo.StartTime];
+            info(:,3)=[FileInfo.EndTime];
+            info(:,4)=(info(:,3)-info(:,2))./info(:,1);
             obj.Start=min(info(:,2));
             obj.End=max(info(:,3));
             obj.DataInfo = info;
+            %check ms polarity of files
+            pol = [FileInfo.Polarity];
+            if all(pol=="positive")
+                polarity = "positive";
+                obj.MSPolarity = "positive";
+            elseif all(pol=="negative")
+                polarity = "negative";
+                obj.MSPolarity = "negative";
+            else
+                polarity = "varied";
+            end
         end
-        function obj = ReadData(obj,DataLoc)
+
+        function obj = ReadData(obj,DataLoc,Level)
             nFiles = size(DataLoc,1);
-            StartT=obj.Start;
-            EndT=obj.End;
             %preallocation
-            PeaksMS1=cell(nFiles,1);
-            PeaksMS2=cell(nFiles,1);
-            PrecursorMass=cell(nFiles,1);
-            timesMS1=cell(nFiles,1);
-            timesMS2=cell(nFiles,1);
+            Peaks=cell(nFiles,1);
+            times=cell(nFiles,1);
+            if Level > 1
+                PrecursorMass=cell(nFiles,1);
+                CollisionForce=cell(nFiles,1);
+                FragMethod=cell(nFiles,1);
+            end
             parfor n=1:nFiles
                 %filetype check
                 FileType=strsplit(DataLoc(n),'.');
                 FileType=FileType(end);
                 switch FileType
                     case "mzML"
-                        [PeaksMS1{n,1},timesMS1{n,1},PrecursorMass{n,1},PeaksMS2{n,1},timesMS2{n,1}] = readmzML(DataLoc{n},StartTime=StartT,EndTime=EndT,MSLevel=2);
+                        [Peaks{n,1},times{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc{n},MSLevel=Level);
                     case "mzXML"
-                        [PeaksMS1{n,1},timesMS1{n,1},PrecursorMass{n,1},PeaksMS2{n,1},timesMS2{n,1}] = readmzXML(DataLoc{n},StartTime=StartT,EndTime=EndT,MSLevel=2);
+                        [Peaks{n,1},times{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
                 end
             end
             % compress peaklist by removing masses with intensity < 100;
-            PeaksMS1 = DataCleanUp(PeaksMS1);
-            PeaksMS2 = DataCleanUp(PeaksMS2);
+            [Peaks,times] = DataCleanUp(Peaks,times);
             % store data
-            obj.nScans = cellfun(@numel,timesMS1);
-            obj.PeakDataMS1 = PeaksMS1;
-            obj.PeakDataMS2 = PeaksMS2;
-            obj.TimeDataMS1 = timesMS1;
-            obj.TimeDataMS2 = timesMS2;
-            obj.Precursor = PrecursorMass;
+            if Level == 1
+                obj.TimeDataMS1 = times;
+                obj.PeakDataMS1 = Peaks;
+            else
+                obj.PeakDataMSn = Peaks;
+                obj.TimeDataMSn = times;
+                obj.Precursor = PrecursorMass;
+                obj.CollisionEnergy = CollisionForce;
+                obj.CollisionType = FragMethod;
+            end
         end
 
         %% Data Processing
@@ -217,12 +243,11 @@ properties
             FileLocs(id)=[];
             %check if files already loaded then skip loading stage
             if isempty(obj.PeakDataMS1) == true || size([obj.Files;obj.BlankFiles],1) ~= size(obj.PeakDataMS1,1)
-                obj = ReadData(obj,FileLocs);
-            else
-                obj.nScans = cellfun(@numel,obj.TimeDataMS1);
+                obj = ReadData(obj,FileLocs,1);               
             end
-            tempPeakData = obj.PeakDataMS1;
-            tempTimeData = obj.TimeDataMS1;
+            %remove scans outside RT range
+            [tempPeakData,tempTimeData] = obj.CutScansToSize;
+            obj.nScans = cellfun(@numel,tempTimeData);
             if obj.MSalign == true
                 mzQuan = obj.mzQuantil;
                 mzEstim = obj.mzEstimMethod;
@@ -1072,6 +1097,17 @@ properties
             Output.IntensityStorage = Output.IntensityStorage/obj.GroupScale;
             %SampleScale
             Output.IntensityStorage = Output.IntensityStorage./obj.SampScale';
+        end
+        function [tempPeakData,tempTimeData] = CutScansToSize(obj)
+            StartTime = obj.Start;
+            EndTime = obj.End;
+            tempPeakData = obj.PeakDataMS1;
+            tempTimeData = obj.TimeDataMS1;
+            parfor n = size(tempTimeData,1)
+                idx = tempTimeData{n,1} < StartTime | tempTimeData{n,1} > EndTime
+                tempPeakData{n,1}(idx)=[];
+                tempTimeData{n,1}(idx)=[];
+            end
         end
     end
     %%

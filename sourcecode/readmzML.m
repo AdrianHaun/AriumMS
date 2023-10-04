@@ -1,62 +1,49 @@
-function [PeaksMS1,timesMS1,varargout] = readmzML(DataPath,options)
+function [ScanData,retentionTime,varargout] = readmzML(DataPath,options)
 %% reads mzML files and outputs mz, Intensity and time data
-
 % .mzML files can be 32bit and 64bit encoded can use zlib compression, numpress compression is not yet
 % supported
 % Input: Datapath: datapath to .mzML file
 % optional inputs:
-% StartTime: excludes scans with lower scan time, default is 0
-% EndTime: excludes scans with higher scan time, default is Inf
-% MSLevel: specifies the maximum MS level to be included and enables additional
-% outputs, default is 1
+% MSLevel: specifies the MS level to to extract, a MSLevel > 1 enables additional outputs. default is 1
 % Outputs:
 % Peaks: cell array each containing a two column matrix, with mz values and corresponding intensity
 % times: vector with scan times corresponding to each cell of Peaks.
-% optional outputs: two column matrix, column1:MSn Precursor mass; column2: corresponding level
-% Peak Data for MS2 then time Data for MS2, repeatable until all MSn levels
-% specifided by the MSLevel option
-
-% BSD 3-Clause License
-% 
-% Copyright (c) 2022, Adrian Haun
-% All rights reserved.
-% 
-% Redistribution and use in source and binary forms, with or without
-% modification, are permitted provided that the following conditions are met:
-% 
-% 1. Redistributions of source code must retain the above copyright notice, this
-%    list of conditions and the following disclaimer.
-% 
-% 2. Redistributions in binary form must reproduce the above copyright notice,
-%    this list of conditions and the following disclaimer in the documentation
-%    and/or other materials provided with the distribution.
-% 
-% 3. Neither the name of the copyright holder nor the names of its
-%    contributors may be used to endorse or promote products derived from
-%    this software without specific prior written permission.
-% 
-% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-% AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-% IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-% DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-% FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-% DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-% SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-% CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-% OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-% OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+% optional outputs: Precursor Mass, Fragmentation Energy, Fragmentation
+% Type
 arguments
     DataPath            (1,1) string
-    options.StartTime   (1,1) {mustBeNumeric} = 0
-    options.EndTime     (1,1) {mustBeNumeric} = Inf
     options.MSLevel     (1,1) {mustBeInteger} = 1
 end
 
-S = readstruct(DataPath,"FileType","xml");
-S = [S.mzML.run.spectrumList.spectrum];
-%get encoding precision and compression
-mzPrecision = S(1).binaryDataArrayList.binaryDataArray(1).cvParam(1).nameAttribute;
+doc = xmlread(DataPath);
+spectrumList = doc.getElementsByTagName('spectrumList').item(0);
+% Check if the spectrum element exists
+if ~isempty(spectrumList)
+    % Get the value of the scanCount attribute
+    scanCountValue = str2double(spectrumList.getAttribute('count'));
+    spectrumNodes = doc.getElementsByTagName('spectrum');
+    firstNode = spectrumNodes.item(0);
+    %get time unit and msPolarity
+    ScanInfos = firstNode.getElementsByTagName('cvParam');
+    polarity = string(ScanInfos.item(2).getAttribute('name'));
+    scanElement=firstNode.getElementsByTagName('scanList');
+    scanElement=scanElement.item(0).getElementsByTagName('scan');
+    scanElement=scanElement.item(0).getElementsByTagName('cvParam');
+    retentionTimeUnit = string(scanElement.item(0).getAttribute('unitName'));
+    %get encoding precision and compression
+    firstMZ = firstNode.getElementsByTagName('binaryDataArray');
+    mzBinary = firstMZ.item(0);
+    mzBinary = mzBinary.getElementsByTagName('cvParam');
+    mzPrecision = string(mzBinary.item(0).getAttribute('name'));
+    mzEncoding = string(mzBinary.item(1).getAttribute('name'));
+    IntBinary = firstMZ.item(1);
+    IntBinary = IntBinary.getElementsByTagName('cvParam');
+    IntPrecision = string(IntBinary.item(0).getAttribute('name'));
+    IntEncoding = string(IntBinary.item(1).getAttribute('name'));
+else
+     error("Corrupt or empty file.")
+end
+%
 switch mzPrecision
     case "32-bit float"
         mzPrecision = 'single';
@@ -67,7 +54,6 @@ switch mzPrecision
     case "64-bit integer"
         mzPrecision = 'double';
 end
-IntPrecision = S(1).binaryDataArrayList.binaryDataArray(2).cvParam(1).nameAttribute;
 switch IntPrecision
     case "32-bit float"
         IntPrecision = 'single';
@@ -78,95 +64,116 @@ switch IntPrecision
     case "64-bit integer"
         IntPrecision = 'double';
 end
-mzDecode=S(1).binaryDataArrayList.binaryDataArray(1).cvParam(2).nameAttribute;
-switch mzDecode
+switch mzEncoding
     case "no compression"
-        mzzlib = false;
+        mzEncoding = false;
     case "zlib compression"
-        mzzlib = true;
+        mzEncoding = true;
     case "MS-Numpress linear prediction compression"
         error("Files that use numpress compression are not supported at this time.")
-
     case "MS-Numpress linear prediction compression followed by zlib compression"
         error("Files that use numpress compression are not supported at this time.")
 end
-IntDecode=S(1).binaryDataArrayList.binaryDataArray(2).cvParam(2).nameAttribute;
-switch IntDecode
+switch IntEncoding
     case "no compression"
-        Intzlib = false;
+        IntEncoding = false;
     case "zlib compression"
-        Intzlib = true;
+        IntEncoding = true;
     case "MS-Numpress positive integer compression"
         error("Files that use numpress compression are not supported at this time.")
-
     case "MS-Numpress positive integer compression followed by zlib compression"
         error("Files that use numpress compression are not supported at this time.")
 end
+% Initialize arrays to store the extracted data
+msLevels = zeros(scanCountValue,1);
+retentionTime = zeros(scanCountValue,1);
+CollisionEnergy = zeros(scanCountValue,1);
+FragMethod = strings(scanCountValue,1);
+PrecursorMass = strings(scanCountValue,1);
+mzBinaryStrings = strings(scanCountValue,1);
+IntBinaryStrings = strings(scanCountValue,1);
 
-
-nScan = size(S,2);
-%get times and cut to size
-timeVec = zeros(nScan,1);
-parfor n=1:nScan
-    timeVec(n) = S(n).scanList.scan.cvParam.valueAttribute;
+% Iterate through each 'spectrum' element
+for i = 0:spectrumNodes.getLength - 1
+    spectrumElement = spectrumNodes.item(i);
+    % Extract msLevel and retentionTime attributes from the scan element
+    ScanInfos = spectrumElement.getElementsByTagName('cvParam');
+    msLevels(i+1) = str2double(ScanInfos.item(1).getAttribute('value'));
+    if msLevels(i+1) ~= options.MSLevel
+        continue
+    else
+        scanElement = spectrumElement.getElementsByTagName('scan');
+        scanElement = scanElement.item(0).getElementsByTagName('cvParam');
+        retentionTime(i+1) = str2double(scanElement.item(0).getAttribute('value'));
+        % Extract mz and Int binaries
+        Binaries = spectrumElement.getElementsByTagName('binaryDataArray');
+        mzBinary = Binaries.item(0);
+        mzBinaryStrings(i+1) = mzBinary.getTextContent;
+        IntBinary = Binaries.item(1);
+        IntBinaryStrings(i+1) = IntBinary.getTextContent;
+        if msLevels(i+1) > 1
+            PrecursorElement = spectrumElement.getElementsByTagName('precursorList');
+            PrecursorNode = PrecursorElement.item(0).getElementsByTagName('selectedIonList');
+            PrecursorNode = PrecursorNode.item(0).getElementsByTagName('cvParam');
+            PrecursorMass(i+1) = PrecursorNode.item(0).getAttribute('value');
+            FragmentationNode = PrecursorElement.item(0).getElementsByTagName('activation');
+            FragmentationNode = FragmentationNode.item(0).getElementsByTagName('cvParam');
+            FragMethod(i+1) = FragmentationNode.item(0).getAttribute('name');
+            CollisionEnergy(i+1) = str2double(FragmentationNode.item(1).getAttribute('value'));
+        end
+    end
 end
-% convert to seconds
-TimeScale=S(1).scanList.scan.cvParam(1).unitNameAttribute;
-switch TimeScale
+%remove whitespace from binary strings
+IntBinaryStrings = strtrim(IntBinaryStrings);
+mzBinaryStrings = strtrim(mzBinaryStrings);
+%remove MSn data if not relevant
+idx = msLevels ~= options.MSLevel;
+retentionTime(idx)=[];
+CollisionEnergy(idx)=[];
+FragMethod(idx)=[];
+PrecursorMass(idx)=[];
+mzBinaryStrings(idx)=[];
+IntBinaryStrings(idx)=[];
+% convert retentionTimes to seconds
+switch retentionTimeUnit
     case "minute"
-        timeVec = timeVec*60;
+        retentionTime = retentionTime*60;
 end
-idx=timeVec < options.StartTime | timeVec > options.EndTime;
-timeVec(idx)=[];
-S(idx)=[];
-%gather scan data
-nScan = size(S,2);
-PrecursorMass = zeros(nScan,1);
-msLevelVec = zeros(nScan,1);
-Peaks = cell(nScan,1);
-MSL=options.MSLevel;
-parfor n=1:nScan
-    findMSLevel=deal([S(n).cvParam.nameAttribute]);
-    findMSLevel=strcmp(findMSLevel,'ms level');
-    msLevelVec(n) = S(n).cvParam(findMSLevel).valueAttribute;
-    if msLevelVec(n) > 1
-        PrecursorMass(n) = S(n).precursorList.precursor.selectedIonList.selectedIon.cvParam(1).valueAttribute;
+ScanData = cell(size(mzBinaryStrings,1),1);
+for n=1:size(mzBinaryStrings,1)
+    %mzBinary
+    if mzEncoding == true
+        mzbinary = decodeCompressed(mzBinaryStrings(n),mzPrecision);
     else
-        PrecursorMass(n) = 0;
+        mzbinary = decodeUncompressed(mzBinaryStrings(n),mzPrecision);
     end
-    if msLevelVec(n) > MSL
-        mzbinary=0;
-        Intbinary=0;
+    if IntEncoding == true
+        Intbinary = decodeCompressed(IntBinaryStrings(n),IntPrecision);
     else
-        [mzbinary,Intbinary] = S(n).binaryDataArrayList.binaryDataArray.binary;
-        %base64decode
-        mzbinary = typecast(matlab.net.base64decode(mzbinary),'uint8');
-        Intbinary = typecast(matlab.net.base64decode(Intbinary),'uint8');
-        % zlib decompression
-        if mzzlib == true
-            mzbinary = zmat(mzbinary,0,'zlib');
-        end
-        if Intzlib == true
-            Intbinary = zmat(Intbinary,0,'zlib');
-        end
-        % conversion to single or double
-        mzbinary = typecast(mzbinary,mzPrecision)';
-        Intbinary = typecast(Intbinary,IntPrecision)';
+        Intbinary = decodeUncompressed(IntBinaryStrings(n),IntPrecision);
     end
-    %store converted data
-    Peaks{n} = [mzbinary Intbinary];
+    ScanData{n} = [mzbinary' Intbinary'];
 end
-%split MsLevels
-timesMS1 = timeVec(msLevelVec == 1);
-PeaksMS1 = Peaks(msLevelVec == 1);
-if options.MSLevel > 1 && options.MSLevel <= max(msLevelVec)
-    varargout{1}=[PrecursorMass,msLevelVec];
-    out=cell(options.MSLevel-1,2);
-    for n = 2:options.MSLevel
-        out{n-1,1} = Peaks(msLevelVec == n);
-        out{n-1,2} = timeVec(msLevelVec == n);
-    end
-    out=reshape(out,1,[]);
-    varargout = [varargout,out];
+
+if options.MSLevel > 1
+    varargout{1} = str2double(PrecursorMass);
+    varargout{2} = CollisionEnergy;
+    varargout{3} = FragMethod;
+else
+    varargout{1} = 0;
+    varargout{2} = 0;
+    varargout{3} = "empty";
 end
+end
+%helper functions
+
+function out = decodeUncompressed(DataString,precision)
+out = typecast(matlab.net.base64decode(DataString),'uint8');
+out = typecast(out,precision);
+end
+
+function out = decodeCompressed(DataString,precision)
+out = typecast(matlab.net.base64decode(DataString),'uint8');
+out = zmat(out,0,'zlib');
+out = typecast(out,precision);
 end
