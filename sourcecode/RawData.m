@@ -405,11 +405,11 @@ properties
             % transform mz values from M+H+ / M-H+ to M
             switch obj.MSPolarity
                 case "positive"
-                    Output.FeatIdentifiers(:,1) = round(Output.FeatIdentifiers(:,1) - 1.007276,5);
-                    obj.ROImzVec = round(obj.ROImzVec - 1.007276,5);
+                    Output.FeatIdentifiers(:,1) = round(Output.FeatIdentifiers(:,1) - 1.007825,5);
+                    obj.ROImzVec = round(obj.ROImzVec - 1.007825,5);
                 case "negative"
-                    Output.FeatIdentifiers(:,1) = round(Output.FeatIdentifiers(:,1) + 1.007276,5);
-                    obj.ROImzVec = round(obj.ROImzVec + 1.007276,5);
+                    Output.FeatIdentifiers(:,1) = round(Output.FeatIdentifiers(:,1) + 1.007825,5);
+                    obj.ROImzVec = round(obj.ROImzVec + 1.007825,5);
             end
             obj.EntropyStorage = Output.EntropyStorage;
             obj.Signal2NoiseStorage = Output.Signal2NoiseStorage;
@@ -586,8 +586,6 @@ properties
             Diff2(length(times),:) = 0; %expand to original size
             Diff2 = sparse(Diff2);
             IntResults=cell(8,size(Mat,2)); %preallocate output
-            % delete(gcp('nocreate'));
-            % parpool("Threads");
             parfor id=1:size(Mat,2)
                 % extract relevent Peak data
                 tempResults = IntResults(:,id);
@@ -1036,7 +1034,7 @@ properties
                 Entropy = IntegrationResults{4,n}(:,1);
                 SN = IntegrationResults{4,n}(:,2);
                 SampleIndex = RTAssign{n}(:,2);
-                XICvec = IntegrationResults(5,n);
+                XICvec = {[IntegrationResults{5,n},obj.timeVec]};
                 %find unique Retention Times
                 [UniqueTimes,IndexToUnique]=uniquetol(Times,TimeTolerance,'DataScale',1,'OutputAllIndices',true);
 

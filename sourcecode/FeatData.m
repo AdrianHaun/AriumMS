@@ -192,19 +192,15 @@ classdef FeatData
                 OtherGroups = AllIntensities(1:end ~= g);
                 SignificantFeatureArray = zeros(size(ActiveGroup,1),size(OtherGroups,2));
                 for n=1:size(OtherGroups,2)
-                    [~,p]=ttest2(ActiveGroup,OtherGroups{n},"Dim",2);
+                    [~,p]=ttest2(ActiveGroup,OtherGroups{n},'Vartype','unequal',"Dim",2);
                     p(isnan(p))=1;
                     if HochbergFilter==true
-                        [pnew,sortParam]=sort(p,'ascend');
-                        sortParam(isnan(pnew))=[];
-                        pnew(isnan(pnew))=[];
-                        rank=1:1:length(pnew);
-                        ptest=rank./length(rank)*FDRValue;
-                        idx=pnew<ptest';
-                        sortParam(~idx)=[];
-                        pnew=nan(1,length(p));
-                        pnew(sortParam)=p(sortParam);
-                        p=pnew;
+                        [~,sortParam]=sort(p,'ascend');
+                        rank=1:1:length(p);
+                        rank=rank(sortParam);
+                        ptest=(rank/length(rank))*FDRValue;
+                        idx=ptest'<=0.05;
+                        p(idx)=NaN;
                     end
                     SignificantFeatureArray(:,n) = p;
                 end

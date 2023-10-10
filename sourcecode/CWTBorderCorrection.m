@@ -61,7 +61,7 @@ end
 for n=1:size(PeakData,1)
     u=PeakData(n,3);
     while u>1 && u<numel(EIC)-8 %upper bond
-        if abs(EIC(u-1)-mean(EIC(u-1:u+7))) <= std(noise(u-1:u+7)) || round(EIC(u-1)-EIC(u))==0
+        if abs(EIC(u-1)-mean(EIC(u-1:u+7,1))) <= std(noise(u-1:u+7,1)) || round(EIC(u-1,1)-EIC(u,1))==0
             u=u-1;
         else
             PeakData(n,3)=u;
@@ -70,7 +70,7 @@ for n=1:size(PeakData,1)
     end
     l=PeakData(n,2);
     while l<=numel(EIC)-1 && l>8 %lower bond
-        if abs(EIC(l+1)-mean(EIC(l-7:l+1))) <= std(noise(l-7:l+1)) || round(EIC(l)-EIC(l+1))==0
+        if abs(EIC(l+1,1)-mean(EIC(l-7:l+1,1))) <= std(noise(l-7:l+1,1)) || round(EIC(l,1)-EIC(l+1,1))==0
             l=l+1;
         else
             PeakData(n,2)=l;
