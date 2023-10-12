@@ -1,35 +1,7 @@
 classdef RawData
-    % BSD 3-Clause License
-% 
-% Copyright (c) 2022, Adrian Haun
-% All rights reserved.
-% 
-% Redistribution and use in source and binary forms, with or without
-% modification, are permitted provided that the following conditions are met:
-% 
-% 1. Redistributions of source code must retain the above copyright notice, this
-%    list of conditions and the following disclaimer.
-% 
-% 2. Redistributions in binary form must reproduce the above copyright notice,
-%    this list of conditions and the following disclaimer in the documentation
-%    and/or other materials provided with the distribution.
-% 
-% 3. Neither the name of the copyright holder nor the names of its
-%    contributors may be used to endorse or promote products derived from
-%    this software without specific prior written permission.
-% 
-% THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-% AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-% IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-% DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-% FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-% DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-% SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-% CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-% OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-% OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-    
-properties
+    % Class for storing group settings and performing funktions from Raw
+    % data until Feature data stage
+    properties
         %% Processing Parameters
         GroupName (1,1) string
         FileNames  (:,1) string
@@ -112,8 +84,12 @@ properties
         Precursor   (:,1) cell
         CollisionType   (:,1) cell
         CollisionEnergy   (:,1) cell
+        % processing temporaries
+        ROICells    (:,1) cell
+        TimeCells   (:,1) cell
         nScans      (:,1) double {mustBeInteger,mustBePositive}
         nScansPadded(:,1) double {mustBeInteger,mustBePositive}
+        %FileInfos
         DataInfo    (:,4) double
         ScanFrequency (1,1) double
         %ROI Data
@@ -158,10 +134,10 @@ properties
             TIC = cell(length(FileLoc),1);
             BPC = cell(length(FileLoc),1);
             FileInfo =  struct('Polarity','N/A',...
-                                'NumberOfScansMS1',[],...
-                                'NumberOfScansMSn',[],...
-                                'StartTime',[],...
-                                'EndTime',[]);
+                'NumberOfScansMS1',[],...
+                'NumberOfScansMSn',[],...
+                'StartTime',[],...
+                'EndTime',[]);
             parfor n=1:length(FileLoc)
                 %check filetype
                 test=strsplit(FileLoc(n),'.');
@@ -180,8 +156,8 @@ properties
             info(:,2)=[FileInfo.StartTime];
             info(:,3)=[FileInfo.EndTime];
             info(:,4)=(info(:,3)-info(:,2))./info(:,1);
-            obj.Start=min(info(:,2));
-            obj.End=max(info(:,3));
+            obj.Start=round(min(info(:,2)),1);
+            obj.End=round(max(info(:,3)),1);
             obj.DataInfo = info;
             %check ms polarity of files
             pol = [FileInfo.Polarity];
@@ -236,110 +212,65 @@ properties
         function [obj,Output]=BatchProcess(obj)
             nFiles = size(obj.Files,1);
             nBLK = size(obj.BlankFiles,1);
-            nData= nFiles + nBLK;
+            nData = nFiles+nBLK;
             FileLocs=[obj.Files;obj.BlankFiles];
             %remove possible empty
             id=cellfun(@isempty,FileLocs);
             FileLocs(id)=[];
             %check if files already loaded then skip loading stage
             if isempty(obj.PeakDataMS1) == true || size([obj.Files;obj.BlankFiles],1) ~= size(obj.PeakDataMS1,1)
-                obj = ReadData(obj,FileLocs,1);               
+                obj = ReadData(obj,FileLocs,1);
             end
             %remove scans outside RT range
-            [tempPeakData,tempTimeData] = obj.CutScansToSize;
-            obj.nScans = cellfun(@numel,tempTimeData);
+            obj = obj.CutScansToSize;
+            obj.nScans = cellfun(@numel,obj.TimeCells);
             if obj.MSalign == true
-                mzQuan = obj.mzQuantil;
-                mzEstim = obj.mzEstimMethod;
-                mzCorr = obj.mzCorrectionMethod;
-                parfor id = 1:nData
-                    % perform Spectral Alignment
-                    [~, tempPeakData{id}]= mspalign(tempPeakData{id},'Quantile',mzQuan,'EstimationMethod',mzEstim,'CorrectionMethod',mzCorr,'ShowEstimation',false);
-                end
+                obj = obj.AlignScans;
             end
             % ROI Search
-            [MSroi,mzroi,time] = AutoROI(tempPeakData,tempTimeData,obj.mzerror,obj.mzErrorUnit,obj.minroi,obj.thresh);
-            MSroi=MSroi-obj.thresh; %subtract intensity threshold
-            MSroi=max(MSroi,0); %set every negative intensity to 0
-            clearvars tempTimeData tempPeakData FileLocs
-            %split and pad matrices
-            MSroi = mat2cell(MSroi,obj.nScans);
-            time = mat2cell(time,obj.nScans);
-            maxScan=max(obj.nScans);
-            ScanNumbers = obj.nScans;
-            parfor id = 1:nData
-                MSroi{id}= padarray(MSroi{id},maxScan-ScanNumbers(id),0,'post');
-                time{id}= padarray(time{id},maxScan-ScanNumbers(id),0,'post');
-            end
+            obj = obj.AutoROI;
 
             % Average BLK
             if obj.BLKSubtraction == true && nBLK > 1
-                [MSroi,time] = AverageBLK(obj,MSroi,time,nBLK);
+                obj = obj.AverageBLK(nBLK);
+                nData = size(obj.ROICells,1); % update number of matrices
             end
-            nData = size(MSroi,1); % update number of matrices
             if obj.ContaminantFilter == true
-                [MSroi,mzroi] = removeContaminants(obj,MSroi,mzroi);
+                obj = obj.removeContaminants;
             end
 
             % Baseline Corrention
             if obj.BaseCorr == true
-                [MSroi,time] = CorrectBaseline(obj,MSroi,time);
+                obj = obj.CorrectBaseline;
             end
             % Smoothing
             if obj.Smoothing == true
-                [MSroi,time] = SmoothPeaks(obj,MSroi,time);
+                obj = obj.SmoothPeaks;
             end
 
             % Peak Align
             if obj.Peakalign == true && nData > 1
-                [MSroi,time] = AlignPeaks(obj,MSroi,time,maxScan);
+                obj = obj.AlignPeaks;
             end
 
-            if obj.BLKSubtraction == true
-                obj.ROIMatBLK=sparse(MSroi{end});
-                MSroi(end)=[];
-                nData = size(MSroi,1); % update number of matrices
-                time(end)=[];
+            if obj.BLKSubtraction == true % Separate Blank data from Sample data
+                obj.ROIMatBLK=sparse(obj.ROICells{end});
+                obj.ROICells(end)=[];
+                obj.TimeCells(end)=[];
             end
 
             % subtract blank before IS normalization
             if obj.BLKSubtraction == true && obj.ISOrder == "BlankIS"
-                for id=1:size(MSroi,1)
-                    MSroi{id}=MSroi{id}-obj.ROIMatBLK;
+                for id=1:size(obj.ROICells,1)
+                    obj.ROICells{id}=obj.ROICells{id}-obj.ROIMatBLK;
                     % set possible negative values to 0
-                    MSroi{id} = max(MSroi{id},0);
+                    obj.ROICells{id} = max(obj.ROICells{id},0);
                 end
             end
             % pad arrays with Maximum peak width*3 Scans to eliminate
             % integration interference between matrices
-            PaddedSize = zeros(nData,1);
-            timeTemp=horzcat(time{:});
-            timeTemp(any(timeTemp==0,2),:)=[];
-            obj.ScanFrequency=mean(diff(timeTemp),'all');
-            MaxPW=round(obj.maxWidth*1.5/obj.ScanFrequency);
-            parfor i = 1:size(MSroi,1)
-                MStemp=MSroi{i};
-                MStemp=max(MStemp,0);
-                MStemp(isnan(MStemp))=0;
-                MStemp=padarray(MStemp,MaxPW,0,'post');
-                MSroi{i}=MStemp;
-                time{i}=padarray(time{i},MaxPW,0,'post');
-                PaddedSize(i) = length(time{i});
-            end
-            obj.nScansPadded = PaddedSize;
-            obj.nScans(length(PaddedSize)+1:end) = [];
-            MStemp = vertcat(MSroi{:});
-            %remove empty columns
-            id = all(MStemp < obj.thresh,1);
-            MStemp(:,id) = [];
-            MStemp=max(MStemp,0);
-            if obj.BLKSubtraction == true
-                obj.ROIMatBLK(:,id) = [];
-            end
-            mzroi(id) = [];
-            obj.ROIMat = sparse(MStemp);
-            obj.ROImzVec = mzroi;
-            obj.timeVec = round(vertcat(time{:}),1);
+            obj = obj.FinalizeROI;
+            
             clearvars -except obj
             %% Integration Stage
             % Find and Integrate IS separate
@@ -375,7 +306,7 @@ properties
             obj.SNFiltered = sum(vertcat(IntegrationData{7,:}),"all");
             IntegrationData(5:7,:) = [];
             % remove ROI masses with no found peaks
-            empt=cellfun(@isempty,IntegrationData(1,:));
+            empt=cellfun(@isempty,IntegrationData(4,:));
             IntegrationData(:,empt)=[];
             obj.ROImzVec(empt)=[];
             obj.ROIMat(:,empt)=[];
@@ -421,7 +352,9 @@ properties
         end
 
         %% helper functions
-        function [ROICell,TimeCell] = AverageBLK(obj,ROICell,TimeCell,numBLK)
+        function obj = AverageBLK(obj,numBLK)
+            ROICell = obj.ROICells;
+            TimeCell = obj.TimeCells;
             maxScan=max(obj.nScans);
             BLKFiles = vertcat(ROICell{end-numBLK+1:end});
             BLKFiles = reshape(BLKFiles,maxScan,size(BLKFiles,2),numBLK);
@@ -436,9 +369,11 @@ properties
             ROICell{end+1}=BLKFiles;
             TimeCell(end-numBLK+1:end)=[];
             TimeCell{end+1}=BLKTimes;
+            obj.ROICells = ROICell;
+            obj.TimeCells = TimeCell;
         end
 
-        function [ROICell,mzList] = removeContaminants(obj,ROICell,mzList)
+        function obj = removeContaminants(obj)
             % Remove Contaminant Masses load correct Contaminant Masslist
             switch obj.MSPolarity
                 case "positive"
@@ -451,16 +386,16 @@ properties
             %calculate possible Contaminants
             switch obj.mzTolUnit
                 case "Da"
-                    isContaminant=abs(Contaminants-mzList) <= obj.mzTol;
+                    isContaminant=abs(Contaminants-obj.ROImzVec) <= obj.mzTol;
                 case "ppm"
-                    isContaminant=abs(Contaminants-mzList)./mzList*10^6 <= obj.mzTol;
+                    isContaminant=abs(Contaminants-obj.ROImzVec)./obj.ROImzVec*10^6 <= obj.mzTol;
             end
             isContaminant=any(isContaminant,1);
             % remove contaminant columns from ROi mz list and MSroi
             % matrices
-            mzList(isContaminant)=[];
-            for id = 1:size(ROICell,1)
-                ROICell{id}(:,isContaminant)=[];
+            obj.ROImzVec(isContaminant)=[];
+            for id = 1:size(obj.ROICells,1)
+                obj.ROICells{id}(:,isContaminant)=[];
             end
         end
 
@@ -570,7 +505,6 @@ properties
                 uialert(fig,message,header,'Icon','warning');
             end
         end
-
         function IntResults = CWTIntegrate(obj,Index)
             Mat = obj.ROIMat(:,Index);
             maxSN = obj.minSignalNoise;
@@ -578,116 +512,26 @@ properties
             MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
             MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
             times = obj.timeVec;
-            filterBank = cwtfilterbank("SignalLength",numel(times),"WaveletParameters",[3 4],"VoicesPerOctave",8,"SamplingPeriod",seconds(obj.ScanFrequency),"PeriodLimits",[seconds(obj.minWidth) seconds(obj.maxWidth)]);
+            ScanFreq = obj.ScanFrequency;
+            minSec = obj.minWidth;
+            maxSec = obj.maxWidth;
             % calculate EIC derivatives and store as sparse
-            smoothed = sparse(smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1));
+            smoothed = smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1);
             Noise = std(Mat-smoothed);
-            Diff2 = diff(smoothed,2);
-            Diff2(length(times),:) = 0; %expand to original size
-            Diff2 = sparse(Diff2);
-            IntResults=cell(8,size(Mat,2)); %preallocate output
-            parfor id=1:size(Mat,2)
-                % extract relevent Peak data
-                tempResults = IntResults(:,id);
-                %% wavelet transform
-                [CWT,~,~,~] = wt(filterBank,-full(Diff2(:,id)));
-                CWT=rescale(real(CWT),0,1);
-                %find initial rt
-                RTID=any(imextendedmax(CWT,0.2),1);
-                isolatedPeak=full(smoothed(:,id));
-                isolatedPeak(~RTID)=0;
-                [~,locs,~,~] = findpeaks(isolatedPeak,'WidthReference','halfheight');
-                %find initial border locations
-                [~,borders,~,~] = findpeaks(sum(imextendedmin(CWT,0.1)));
-                CWT = [];
-                peaks=zeros(numel(locs),3);
-                peaks(:,1)=locs';
-                %sort borders to RT
-                for n=1:size(peaks,1)
-                    [~,idx]=mink(borders-locs(n),2,'ComparisonMethod','abs');
-                    if isempty(borders(idx))==true
-                        peaks(n,2:3)=[0,0];
-                    else
-                        peaks(n,2:3)=sort(borders(idx),'ascend');
-                    end
-                end
-                idx=peaks(:,2)==0;
-                peaks(idx,:)=[];
-
+            Diff2 = zeros(length(times),size(Mat,2));
+            Diff2(1:end-2,:) = diff(smoothed,2);
+            numEIC = size(Mat,2);
+            IntResults=cell(8,numEIC); %preallocate output
+            for id=1:numEIC
+                peaks = AutoCWT(Diff2(:,id),smoothed(:,id),ScanFreq,minSec,maxSec);
                 % Correct Peak Borders
                 peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
-                %merge peaks with adjacent boundaries and maxima
-
-                %get final peak location and height
-                for n=1:size(peaks,1)
-                    EICtemp = full(Mat(:,id));
-                    EICtemp(1:peaks(n,2)-1)=0;
-                    EICtemp(peaks(n,3)+1:end)=0;
-                    [peaks(n,4),peaks(n,1)]=max(EICtemp);
-                end
-                
-                %% Peak filter
-                %remove peaks with wrong boundaries
-                if isempty(peaks)==false
-                    idx=peaks(:,2)>=peaks(:,3);
-                    peaks(idx,:)=[];
-                end
-                %remove duplicate peaks
-                if isempty(peaks)==false
-                    peaks=unique(peaks,'rows');
-                end
-                %remove peaks with height = 0
-                if isempty(peaks)==false
-                    idx=peaks(:,4)==0;
-                    peaks(idx,:)=[];
-                end
-                %remove peaks with bad Peak asymmetry
-                if isempty(peaks)==false
-                    idx= (peaks(:,3)-peaks(:,1))./(peaks(:,1)-peaks(:,2));
-                    idx = idx<0.3 | idx>3;
-                    peaks(idx,:)=[];
-                end
-                %less than minimum peak width
-                if isempty(peaks)==false
-                    idx=peaks(:,3)-peaks(:,2)<MinPWDataPoints;
-                    peaks(idx,:)=[];
-                    tempResults{5,1}=sum(idx);
-                end
-                %more than maximum peak width
-                if isempty(peaks)==false
-                    idx=peaks(:,3)-peaks(:,2)>MaxPWDataPoints;
-                    peaks(idx,:)=[];
-                    tempResults{6,1}=sum(idx);
-                end
-                %S/N peak rejection
-                SN=zeros(size(peaks,1),1);
-                if isempty(peaks)==false
-                    SN=peaks(:,4)./Noise(id);
-                    idx=SN<maxSN;
-                    peaks(idx,:)=[];
-                    SN(idx,:)=[];
-                    tempResults{7,1}=sum(idx);
-                end
-                %% entropy calculation
-                if isempty(peaks)==false
-                    Entropy = CalculatePeakEntropy(peaks,Mat(:,id));
-                else
-                    Entropy = 0;
-                end
+                [peaks,tempStorage] = FilterPeaks(peaks,MinPWDataPoints,MaxPWDataPoints,maxSN,Noise(:,id),Mat(:,id));
                 %% integrate and store results
-                Areas=zeros(size(peaks,1),1);
-                EIC = full(Mat(:,id));
-                for n=1:size(peaks,1)
-                    Areas(n,1)=trapz(EIC(peaks(n,2):peaks(n,3)));
+                tempStorage=FinalizeIntegrationOutput(peaks,tempStorage,Mat(:,id),times);
+                for n=1:8
+                    IntResults{n,id}=tempStorage{n,1};
                 end
-                if isempty(peaks)==false
-                    tempResults{1,1}=peaks(:,4);
-                    tempResults{2,1}=[Areas,peaks(:,2),peaks(:,3)];
-                    tempResults{3,1}=[peaks(:,1),times(peaks(:,1))];
-                    tempResults{4,1}=[Entropy,SN];
-                    tempResults{8,1}= Mat(:,id);
-                end
-                IntResults(:,id)=tempResults;
             end
         end
 
@@ -813,9 +657,9 @@ properties
             %compare case masses to initial mz list
             switch obj.mzTolUnit
                 case "ppm"
-                     PossibleBaseMZindex = cell(size(PossibleBaseMZ));
+                    PossibleBaseMZindex = cell(size(PossibleBaseMZ));
                     for n=1:size(mzVec,2)
-                    [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mzVec(n),obj.mzTol,'ByRows',1,'DataScale',mzVec(n)*10^-6,'OutputAllIndices',true);
+                        [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mzVec(n),obj.mzTol,'ByRows',1,'DataScale',mzVec(n)*10^-6,'OutputAllIndices',true);
                     end
                 case "Da"
                     [~,PossibleBaseMZindex]=ismembertol(PossibleBaseMZ,mzVec,obj.mzTol,'DataScale',1,'OutputAllIndices',true);
@@ -909,7 +753,7 @@ properties
                 case "ppm"
                     PossibleBaseMZindex = cell(size(IsotopeRules,1),size(mz,2));
                     for n=1:size(mz,2)
-                    [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mz(n),obj.mzTol,'ByRows',1,'DataScale',mz(n)*10^-6,'OutputAllIndices',true);
+                        [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mz(n),obj.mzTol,'ByRows',1,'DataScale',mz(n)*10^-6,'OutputAllIndices',true);
                     end
                 case "Da"
                     [~,PossibleBaseMZindex]=ismembertol(PossibleBaseMZ,mz,obj.mzTol,'DataScale',1,'OutputAllIndices',true);
@@ -1089,14 +933,13 @@ properties
             Output.Signal2NoiseStorage(idx,:) = [];
             obj.OccurenceFiltered = Removed + sum(idx);
         end
-
         function Output = GroupAndSampleScaling(obj,Output)
             %GroupScale
             Output.IntensityStorage = Output.IntensityStorage/obj.GroupScale;
             %SampleScale
             Output.IntensityStorage = Output.IntensityStorage./obj.SampScale';
         end
-        function [tempPeakData,tempTimeData] = CutScansToSize(obj)
+        function obj = CutScansToSize(obj)
             StartTime = obj.Start;
             EndTime = obj.End;
             tempPeakData = obj.PeakDataMS1;
@@ -1106,22 +949,181 @@ properties
                 tempPeakData{n,1}(idx)=[];
                 tempTimeData{n,1}(idx)=[];
             end
+            obj.ROICells = tempPeakData;
+            obj.TimeCells = tempTimeData;
+        end
+        function obj=AutoROI(obj)
+            %%AutoROI Performs fully automated ROI search and augmentation.
+            Peaklist = obj.ROICells;
+            Timelist = obj.TimeCells;
+            Intthresh = obj.thresh;
+            minroiSize = obj.minroi;
+            ErrorUnit = obj.mzErrorUnit;
+            Masserror = obj.mzerror;
+
+            %preallocate cell arrays
+            mzlist = cell(length(Peaklist),1);
+            MSroilist = cell(length(Peaklist),1);
+            %ROI search for every Sample
+            parfor d = 1 : length(Peaklist)
+                P= Peaklist{d,1};
+                T= Timelist{d,1};
+                nrows=length(P);
+                [mzlist{d,1},MSroilist{d,1},~]=ROIpeaks2(P,Intthresh,Masserror,ErrorUnit,minroiSize,nrows,T);
+            end
+            if length(mzlist) == 1 %Skip Augmentation if only one Sample
+                MSroi_end=MSroilist{1,1};
+                mzroi_end=mzlist{1,1};
+                time_end=Timelist{1,1};
+            else
+                for i = 2:size(Peaklist,1)
+                    [MSroilist{1,1},mzlist{1,1},Timelist{1,1}] = MSroiaug2(MSroilist{1,1},MSroilist{i,1},mzlist{1,1},mzlist{i,1},Masserror,ErrorUnit,Intthresh,Timelist{1,1},Timelist{i,1});
+                end
+                MSroi_end=MSroilist{1,1};
+                mzroi_end=mzlist{1,1};
+                time_end=Timelist{1,1};
+            end
+            MSroi_end=MSroi_end-obj.thresh; %subtract intensity threshold
+            MSroi_end=max(MSroi_end,0); %set every negative intensity to 0
+
+            %split and pad matrices
+            MSroi_end = mat2cell(MSroi_end,obj.nScans);
+            time_end = mat2cell(time_end,obj.nScans);
+            
+
+            maxScan=max(obj.nScans);
+            ScanNumbers = obj.nScans;
+            parfor id = 1:size(MSroi_end,1)
+                MSroi_end{id}= padarray(MSroi_end{id},maxScan-ScanNumbers(id),0,'post');
+                time_end{id}= padarray(time_end{id},maxScan-ScanNumbers(id),0,'post');
+            end
+            obj.ROICells = MSroi_end;
+            obj.TimeCells = time_end;
+            obj.ROImzVec = mzroi_end;
+        end
+        function obj = AlignScans(obj)
+            mzQuan = obj.mzQuantil;
+            mzEstim = obj.mzEstimMethod;
+            mzCorr = obj.mzCorrectionMethod;
+            PeakCells = obj.ROICells;
+            parfor id = 1:size(PeakCells,1)
+                % perform Spectral Alignment
+                [~, PeakCells{id}]= mspalign(PeakCells{id},'Quantile',mzQuan,'EstimationMethod',mzEstim,'CorrectionMethod',mzCorr,'ShowEstimation',false);
+            end
+            obj.ROICells = PeakCells;
+        end
+        function obj = CorrectBaseline(obj)
+            WSize = obj.WindowSize;
+            SSize = obj.StepSize;
+            RegMethod = obj.RegressionMethod;
+            EstMethod =obj.EstimationMethod;
+            SmooMethod = obj.SmoothMethod;
+            Quan = obj.QuantilVal;
+            MSroi = obj.ROICells;
+            time=obj.TimeCells;
+            parfor id = 1:size(MSroi,1)
+                oldSize=size(MSroi{id});
+                %depad Array
+                MSroiTemp = MSroi{id};
+                [MSroiTemp,timeTemp] = depadArrays(MSroiTemp,time{id});
+                MSroiTemp = msbackadj(timeTemp,MSroiTemp,'WindowSize',WSize,'StepSize',SSize,'RegressionMethod',RegMethod,'EstimationMethod',EstMethod,'SmoothMethod',SmooMethod,'QuantileValue',Quan,'PreserveHeights',true);
+                %remove negativ, NaN and repad Array
+                MSroiTemp=max(MSroiTemp,0);
+                MSroiTemp(isnan(MSroiTemp))=0;
+                [MSroi{id},time{id}] = repadArrays(MSroiTemp,timeTemp,oldSize);
+                % set possible negative values to 0
+                MSroi{id} = max(MSroi{id},0);
+            end
+            obj.ROICells = MSroi;
+        end
+        function obj = SmoothPeaks(obj)
+            Frame = obj.FrameSize;
+            Deg = obj.Degree;
+            MSroi = obj.ROICells;
+            time = obj.TimeCells;
+            parfor id = 1:size(MSroi,1)
+                %depad Array
+                oldSize=size(MSroi{id});
+                MSroiTemp = MSroi{id};
+                [MSroiTemp,timeTemp] = depadArrays(MSroiTemp,time{id});
+                MSroiTemp = mssgolay(timeTemp,MSroiTemp,'Span',Frame,'Degree',Deg);
+                %remove negativ, NaN and repad Array
+                MSroiTemp=max(MSroiTemp,0);
+                MSroiTemp(isnan(MSroiTemp))=0;
+                [MSroi{id},time{id}] = repadArrays(MSroiTemp,timeTemp,oldSize);
+                % set possible negative values to 0
+                MSroi{id} = max(MSroi{id},0);
+            end
+            obj.ROICells = MSroi;
+        end
+        function obj = AlignPeaks(obj)
+            MSroi = obj.ROICells;
+            time = obj.TimeCells;
+            maxScan = max(obj.nScans);
+            % rearrange matrices
+            [splitVar,~] = cellfun(@size,time);
+            test= cellfun(@(x) sum(x~=0),time);
+            [~,test] = max(test);
+            TimeVec = time{test};
+            MSroi=vertcat(MSroi{:});
+            time=vertcat(time{:});
+            [~,id]=max(MSroi);
+            refTime=time(id);
+            ShiftVal = [obj.maxshiftneg,obj.maxshiftpos];
+            PW = obj.PulseWidth;
+            WSR = obj.WindowSizeRatio;
+            I = obj.Iterations;
+            GS = obj.GridSteps;
+            SS = obj.SearchSpace;
+            parfor n=1:size(MSroi,2)
+                ROI=reshape(MSroi(:,n),maxScan,[]);
+                ROI=msalign(TimeVec,ROI,refTime(n),'MaxShift',ShiftVal,...
+                    'WidthOfPulses',PW,'WindowSizeRatio',WSR,'Iterations',...
+                    I,'GridSteps',GS,'SearchSpace',SS);
+                ROI(isnan(ROI))=0; %remove possible NaN
+                MStemp{1,n} = reshape(ROI,[],1);
+            end
+            MSroi = cell2mat(MStemp);
+            obj.ROICells = mat2cell(MSroi,splitVar);
+            obj.TimeCells = mat2cell(time,splitVar);
+        end
+        function obj = FinalizeROI(obj)
+            time = obj.TimeCells;
+            MSroi = obj.ROICells;
+            PaddedSize = zeros(size(MSroi));
+            timeTemp=horzcat(time{:});
+            timeTemp(any(timeTemp==0,2),:)=[];
+            obj.ScanFrequency=mean(diff(timeTemp),'all');
+            MaxPW=round(obj.maxWidth*1.5/obj.ScanFrequency);
+            parfor i = 1:size(MSroi,1)
+                MStemp=MSroi{i};
+                MStemp=max(MStemp,0);
+                MStemp(isnan(MStemp))=0;
+                MStemp=padarray(MStemp,MaxPW,0,'post');
+                MSroi{i}=MStemp;
+                time{i}=padarray(time{i},MaxPW,0,'post');
+                PaddedSize(i) = length(time{i});
+            end
+            obj.nScansPadded = PaddedSize;
+            obj.nScans(length(PaddedSize)+1:end) = [];
+            MStemp = vertcat(MSroi{:});
+            %remove empty columns
+            id = all(MStemp < obj.thresh,1);
+            MStemp(:,id) = [];
+            MStemp=max(MStemp,0);
+            if obj.BLKSubtraction == true
+                obj.ROIMatBLK(:,id) = [];
+            end
+            obj.ROImzVec(id) = [];
+            obj.ROIMat = sparse(MStemp);
+            obj.timeVec = round(vertcat(time{:}),1);
+            %remove temporaries
+            obj.TimeCells = [];
+            obj.ROICells = [];
         end
     end
     %%
     methods(Static)
-
-        function [ArrayOut,VecOut] = depadArrays(ArrayIn,VecIn)
-            idx = VecIn~=0;
-            ArrayOut = ArrayIn(idx,:);
-            VecOut = VecIn(idx);
-        end
-
-        function [ArrayOut,VecOut] = repadArrays(ArrayIn,VecIn,PadSize)
-            OrgSize=size(ArrayIn);
-            ArrayOut = padarray(ArrayIn,PadSize-OrgSize,0,'post');
-            VecOut = padarray(VecIn,PadSize(1)-OrgSize(1),0,'post');
-        end
 
         function [IntegrationData,SumRemoved,empt] = FilterbyEntropy(IntegrationData,MedianEntropy)
             %preallocate number of removed Features
