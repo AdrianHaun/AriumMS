@@ -19,6 +19,7 @@ classdef EvaluationOptions
         VolcanoButton                   matlab.ui.control.Button
         HeatmapButton                   matlab.ui.control.Button
         PCAButton                       matlab.ui.control.Button
+        DatabaseButton                    matlab.ui.control.Button
         ExportButton                    matlab.ui.control.Button
         PlotSpace                       matlab.graphics.layout.TiledChartLayout
         PlotTiles                       matlab.graphics.axis.Axes
@@ -75,7 +76,10 @@ classdef EvaluationOptions
              obj.PCAButton = uibutton(obj.MultivariateAnalysisSubPanel,...
                 "Text","PCA",...
                 "Position",[370,10,170,45],Enable="off");
-            %% Export and Info
+            obj.DatabaseButton = uibutton(obj.Container,...
+                "Text","Search database",...
+                "Position",[800,10,170,85],FontSize=15,FontWeight="bold",Enable="off");
+             %% Export and Info
             obj.ExportButton = uibutton(obj.Container,...
                 "Text","Export Results",...
                 "Position",[975,10,170,85],FontSize=15,FontWeight="bold",Enable="off");
