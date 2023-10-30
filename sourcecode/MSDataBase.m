@@ -4,23 +4,26 @@ classdef MSDataBase
 
     properties
         DataBaseConnection
-        DataBaseFile (1,1) string
-        Features (:,:) double
-        FetchedData (1,:) cell
-        Significance (1,:) cell
-        FoundInGroup (:,:) string
-        mzTol       (1,1) double {mustBeFinite} = 0.001
-        ErrorUnit   (1,1) string {mustBeMember(ErrorUnit,["Da","ppm"])} = "Da"
-        FragmentationType (1,1) logical = false
+        DataBaseFile    (1,1) string
+        Features        (:,:) double
+        FetchedDataMS1  (:,1) cell
+        FetchedDataMS2  (:,1) cell
+        Significant     (:,1) logical
+        HighFoldChange  (:,1) logical
+        FoundInGroup    (:,:) string
         %UI elements
         Window
         Labels
+        SelectDBFile
+        GenerateDB
         MS1SearchButton
         MS2SearchButton
-        RebuildMassBankDataBaseButton
         mzTolEditfield
         ErrorUnitDropDown
         FilterFragmentationTypeCheckbox
+        FilterFragmentationEnergyCheckbox
+        FilterSignificantCheckbox
+        FilterFoldChangeCheckbox
     end
 
     methods
@@ -28,69 +31,125 @@ classdef MSDataBase
             %MSDATABASE Construct an instance of this class
             %   Detailed explanation goes here
             obj.Features = CallingApp.FeatureData.IdentifierArray;
-            obj.Significance = CallingApp.FeatureData.SignificantFeature;
+            IsSignificant = horzcat(CallingApp.FeatureData.SignificantFeature{:});
+            IsSignificant = any(IsSignificant <= CallingApp.maxP,2);
+            obj.Significant = IsSignificant;
+            Fold = max(horzcat(CallingApp.FeatureData.FullFoldChanges{:}),[],2);
+            obj.HighFoldChange = Fold >= CallingApp.minFold;
             obj.FoundInGroup = CallingApp.FeatureData.InGroup;
-
             %build UIelements
             obj.Window = uifigure("WindowStyle","normal",...
                 "Name","Database Searcher",...
                 "Position",[100,100,700,480],...
                 "NumberTitle","off");
-            obj.MS1SearchButton = uibutton(obj.Window,"push",...
+            obj.SelectDBFile = uibutton(obj.Window,"push",...
                 "Position",[535,420,155,40],...
-                Text="MS1 search");
-            obj.mzTolEditfield = uieditfield(obj.Window,"numeric", ...
-                "Position",[435,440,40,20], ...
-                "Limits",[0,Inf], ...
+                Text="Select Database File", ...
+                Enable="on");
+            obj.GenerateDB = uibutton(obj.Window,"push",...
+                "Position",[535,370,155,40],...
+                Text="Build Database File", ...
+                Enable="on");
+            obj.MS1SearchButton = uibutton(obj.Window,"push",...
+                "Position",[535,320,155,40],...
+                Text="MS1 search", ...
+                Enable="off");
+            obj.MS2SearchButton = uibutton(obj.Window,"push",...
+                "Position",[535,270,155,40],...
+                Text="MS2 search", ...
+                Enable="off");
+            obj.mzTolEditfield = uieditfield(obj.Window,"numeric",...
+                "Position",[435,440,40,20],...
+                "Limits",[0,Inf],...
                 "LowerLimitInclusive","off",...
-                "Value",obj.mzTol,...
-                Tooltip="Lowest mass tolerance to identify features between different groups as the same feature.");
+                "Value",0.01,...
+                Tooltip="Lowest mass tolerance to match features to database entry.");
             obj.Labels(2) = uilabel(obj.Window,"Text","Allowed mass tolerance","Position",[280,440,150,20],HorizontalAlignment="right");
 
             obj.ErrorUnitDropDown = uidropdown(obj.Window, ...
                 "Items",["ppm","Da"],...
                 ItemsData=["ppm","Da"], ...
-                Value=obj.ErrorUnit,...
+                Value="Da",...
                 Position=[475,440,50,20],...
                 Tooltip="Specify whether a fixed mz error in Da or a relative error in ppm is used.");
+
+            obj.FilterFragmentationTypeCheckbox = uicheckbox(obj.Window,...
+                "Value",false,...
+                "Position",[35,100,200,20],...
+                "Text","Filter fragmentation type",...
+                Tooltip="Only consider database MS2 spectra with matching fragmentation type.");
+            obj.FilterFragmentationEnergyCheckbox = uicheckbox(obj.Window,...
+                "Value",false,...
+                "Position",[35,75,200,20],...
+                "Text","Filter fragmentation energy",...
+                Tooltip="Only consider database MS2 spectra with matching fragmentation energy.");
+            obj.FilterSignificantCheckbox = uicheckbox(obj.Window,...
+                "Value",false,...
+                "Position",[35,50,200,20],...
+                "Text","Search only significant features",...
+                Tooltip="Only consider significant features in database search.");
+            obj.FilterFoldChangeCheckbox = uicheckbox(obj.Window,...
+                "Value",false,...
+                "Position",[35,25,200,20],...
+                "Text","Search only features with high fold change",...
+                Tooltip="Only consider features with fold change greater than minimum fold change in database search.");
             drawnow
-            %check for existing SQLlite database
+            obj = obj.CheckStatus;
+        end
+
+        function obj=testConnection(obj)          %check for existing SQLlite database
             if isfile(obj.DataBaseFile)
                 obj.DataBaseConnection = sqlite(file);
             else
-                obj.GenerateDatabase
+                obj = obj.GenerateDatabase;
             end
         end
 
-        function obj = GenerateDatabase(obj)
-            %METHOD1 Summary of this method goes here
-            %   Detailed explanation goes here
-            [file,path] = uiputfile('*.db','Select Save Location and Filename for database file',"DataBase.db");
-            obj.DataBaseFile=fullfile(path,file);
+        function obj = SelectDB(obj,~,~)
+            [file,path] = uigetfile('*.db','Select database file');
+            figure(obj.Window);
+            %check for user cancel
+            if file == 0
+                uialert(obj.Window,"Task aborted by user","No database selected")
+                obj = obj.CheckStatus;
+            else
+                obj.DataBaseFile=fullfile(path,file);
+                obj = obj.LoadDatabase;
+                obj = obj.CheckStatus;
+            end
+        end
+        function obj = GenerateDatabase(obj,~,~)
+            if obj.DataBaseFile == ""
+                [file,path] = uiputfile('*.db','Select Save Location and Filename for database file',"DataBase.db");
+                figure(obj.Window);
+                %check for user cancel
+                if file == 0
+                    uialert(obj.Window,"Task aborted by user","No database file created","Icon","warning")
+                    return
+                end
+                obj.DataBaseFile=fullfile(path,file);
+            end
             MassBankRoot = uigetdir(pwd,'Open MassBank data main folder');
+            figure(obj.Window);
             d =  uiprogressdlg(obj.Window,'Title','Building Database',...
-            'Indeterminate','on');
+                'Indeterminate','on');
             drawnow
             obj  = obj.GenerateMassBankDatabase(MassBankRoot);
             close(d)
+            obj = obj.CheckStatus;
+            uialert(obj.Window,"Local database generation successfull","Database file created","Icon","success")
         end
 
-        function outputArg = LoadDatabase(obj,inputArg)
-            %METHOD1 Summary of this method goes here
-            %   Detailed explanation goes here
-            files = matlab.apputil.getInstalledAppInfo;
-            id = [files.id] == "AriumMSAPP";
-            path = files(id).location;
-            file= fullfile(path,"SpectralDataBase.db");
-            if isfile(file)
-                obj.DataBaseConnection = sqlite(file);
+        function obj = LoadDatabase(obj)
+            if isfile(obj.DataBaseFile)
+                obj.DataBaseConnection = sqlite(obj.DataBaseFile);
             else
                 return
             end
         end
 
         function DecodedMS2Data = DecodeString(obj,EncodedStrings)
-                DecodedMS2Data=cell(size(EncodedStrings,1),1);
+            DecodedMS2Data=cell(size(EncodedStrings,1),1);
             parfor n=size(EncodedStrings,1)
                 Decoded = matlab.net.base64decode(EncodedStrings(n));
                 Decoded = typecast(Decoded,'double');
@@ -193,22 +252,97 @@ classdef MSDataBase
             sqlwrite(obj.DataBaseConnection,"MassBankData",database);
         end
 
-        function obj=MassBankQuery(obj,mzTolerance,ErrorUnit,FragmentationType)
+        function obj = MassBankMS1Query(obj)
+            
+            QueryMasses = obj.Features(:,1);
+            Modifier = true(size(QueryMasses));
+            if obj.FilterSignificantCheckbox.Value == true
+                Modifier = obj.Significant;
+            end
+            if obj.FilterFoldChangeCheckbox.Value == true
+                Modifier = [Modifier,obj.HighFoldChange];
+            end
+            Modifier = all(Modifier,2);
+            
+            switch obj.ErrorUnitDropDown.Value
+                case "Da"
+                    MZmin = QueryMasses - obj.mzTolEditfield.Value;
+                    MZmax = QueryMasses + obj.mzTolEditfield.Value;
+                case "ppm"
+                    MZmin = QueryMasses - (QueryMasses*obj.mzTolEditfield.Value*10^-6);
+                    MZmax = QueryMasses + (QueryMasses*obj.mzTolEditfield.Value*10^-6);
+            end
+            
+            out = cell(length(QueryMasses),1);
+            Connection = obj.DataBaseConnection;
+            
+            Indices = 1:1:length(QueryMasses);
 
-            query = ['SELECT NAME, ' ...
-                '	FORMULA, ' ...
-                '	CAS_NUMBER, ' ...
-                '	EXACT_MASS, ' ...
-                '	PRECURSOR_TYPE, ' ...
-                '	SPECTRUM ' ...
-                'FROM SpectralDataBase ' ...
-                'WHERE FRAGMENTATION_TYPE IN (FragType) ' ...
-                '	AND EXACT_MASS - QueryMZ <= tolerance'];
+            query = ['SELECT DISTINCT NAME, ' ...
+                    '	FORMULA, ' ...
+                    '	CAS_NUMBER, ' ...
+                    '	EXACT_MASS, ' ...
+                    '	PRECURSOR_TYPE ' ...
+                    'FROM MassBankData ' ...
+                    'WHERE EXACT_MASS <= '];
+                query = append(query,convertStringsToChars(MZmax + "	AND EXACT_MASS >= " + MZmin));
 
-            %% Execute query and fetch results
-            obj.FetchedData = fetch(conn,query);
+            for n=Indices(Modifier)
+
+                result = fetch(Connection, query{n});
+
+                %calculate difference in ppm
+                diff = ((abs(QueryMasses(n)-result.EXACT_MASS))./QueryMasses(n))*10^6;
+
+                result.DELTA = diff;
+                result = sortrows(result,"DELTA","ascend");
+
+                if ~isempty(result)
+                    out{n}=result;
+                end
+            end
+            obj.FetchedDataMS1 = out; 
         end
 
+
+        function obj = CheckStatus(obj)
+            if isempty(obj.DataBaseFile)
+                obj.MS1SearchButton.Enable = "off";
+                obj.MS2SearchButton.Enable = "off";
+                obj.mzTolEditfield.Enable = "off";
+                obj.ErrorUnitDropDown.Enable = "off";
+                obj.FilterFragmentationTypeCheckbox.Enable = "off";
+                obj.FilterFragmentationEnergyCheckbox.Enable = "off";
+                obj.FilterSignificantCheckbox.Enable = "off";
+            else
+                obj.MS1SearchButton.Enable = "on";
+                obj.MS2SearchButton.Enable = "on";
+                obj.mzTolEditfield.Enable = "on";
+                obj.ErrorUnitDropDown.Enable = "on";
+                obj.FilterFragmentationTypeCheckbox.Enable = "on";
+                obj.FilterFragmentationEnergyCheckbox.Enable = "on";
+                obj.FilterSignificantCheckbox.Enable = "on";
+            end
+
+            if isempty(obj.DataBaseConnection)
+                obj.MS1SearchButton.Enable = "off";
+                obj.MS2SearchButton.Enable = "off";
+                obj.mzTolEditfield.Enable = "off";
+                obj.ErrorUnitDropDown.Enable = "off";
+                obj.FilterFragmentationTypeCheckbox.Enable = "off";
+                obj.FilterFragmentationEnergyCheckbox.Enable = "off";
+                obj.FilterSignificantCheckbox.Enable = "off";
+            else
+                obj.MS1SearchButton.Enable = "on";
+                obj.MS2SearchButton.Enable = "on";
+                obj.mzTolEditfield.Enable = "on";
+                obj.ErrorUnitDropDown.Enable = "on";
+                obj.FilterFragmentationTypeCheckbox.Enable = "on";
+                obj.FilterFragmentationEnergyCheckbox.Enable = "on";
+                obj.FilterSignificantCheckbox.Enable = "on";
+            end
+            drawnow
+        end
     end
 end
 
