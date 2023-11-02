@@ -158,6 +158,10 @@ classdef MSDataBase
         end
 
         function obj = GenerateMassBankDatabase(obj,rootDir)
+            %clear database if one exists
+            if ~isempty(obj.DataBaseConnection)
+                close(obj.DataBaseConnection)
+            end
             % Use the 'dir' function to list all files and folders in the root directory
             fileList = dir(fullfile(rootDir, '**', '*.txt'));
             % Create an empty cell array to store your data
