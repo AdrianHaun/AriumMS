@@ -40,57 +40,56 @@ classdef MSDataBase
             %build UIelements
             obj.Window = uifigure("WindowStyle","normal",...
                 "Name","Database Searcher",...
-                "Position",[100,100,700,480],...
+                "Position",[200,200,500,250],...
                 "NumberTitle","off");
+            obj.Labels(1) = uilabel(obj.Window,"Text","Local Database:","Position",[20,200,160,40],HorizontalAlignment="left",FontName='Impact',FontSize=22);
             obj.SelectDBFile = uibutton(obj.Window,"push",...
-                "Position",[535,420,155,40],...
+                "Position",[170,200,155,40],...
                 Text="Select Database File", ...
                 Enable="on");
             obj.GenerateDB = uibutton(obj.Window,"push",...
-                "Position",[535,370,155,40],...
+                "Position",[335,200,155,40],...
                 Text="Build Database File", ...
                 Enable="on");
             obj.MS1SearchButton = uibutton(obj.Window,"push",...
-                "Position",[535,320,155,40],...
+                "Position",[335,90,155,55],...
                 Text="MS1 search", ...
                 Enable="off");
             obj.MS2SearchButton = uibutton(obj.Window,"push",...
-                "Position",[535,270,155,40],...
+                "Position",[335,25,155,55],...
                 Text="MS2 search", ...
                 Enable="off");
             obj.mzTolEditfield = uieditfield(obj.Window,"numeric",...
-                "Position",[435,440,40,20],...
+                "Position",[205,145,50,20],...
                 "Limits",[0,Inf],...
                 "LowerLimitInclusive","off",...
                 "Value",0.01,...
                 Tooltip="Lowest mass tolerance to match features to database entry.");
-            obj.Labels(2) = uilabel(obj.Window,"Text","Allowed mass tolerance","Position",[280,440,150,20],HorizontalAlignment="right");
-
+            obj.Labels(2) = uilabel(obj.Window,"Text","Allowed mass tolerance:","Position",[60,145,140,20],HorizontalAlignment="left");
             obj.ErrorUnitDropDown = uidropdown(obj.Window, ...
                 "Items",["ppm","Da"],...
                 ItemsData=["ppm","Da"], ...
                 Value="Da",...
-                Position=[475,440,50,20],...
+                Position=[260,145,60,20],...
                 Tooltip="Specify whether a fixed mz error in Da or a relative error in ppm is used.");
-
             obj.FilterFragmentationTypeCheckbox = uicheckbox(obj.Window,...
                 "Value",false,...
-                "Position",[35,100,200,20],...
+                "Position",[60,30,250,20],...
                 "Text","Filter fragmentation type",...
                 Tooltip="Only consider database MS2 spectra with matching fragmentation type.");
             obj.FilterFragmentationEnergyCheckbox = uicheckbox(obj.Window,...
                 "Value",false,...
-                "Position",[35,75,200,20],...
+                "Position",[60,55,250,20],...
                 "Text","Filter fragmentation energy",...
                 Tooltip="Only consider database MS2 spectra with matching fragmentation energy.");
             obj.FilterSignificantCheckbox = uicheckbox(obj.Window,...
                 "Value",false,...
-                "Position",[35,50,200,20],...
+                "Position",[60,80,250,20],...
                 "Text","Search only significant features",...
                 Tooltip="Only consider significant features in database search.");
             obj.FilterFoldChangeCheckbox = uicheckbox(obj.Window,...
                 "Value",false,...
-                "Position",[35,25,200,20],...
+                "Position",[60,105,250,20],...
                 "Text","Search only features with high fold change",...
                 Tooltip="Only consider features with fold change greater than minimum fold change in database search.");
             drawnow
@@ -257,7 +256,6 @@ classdef MSDataBase
         end
 
         function obj = MassBankMS1Query(obj)
-            
             QueryMasses = obj.Features(:,1);
             Modifier = true(size(QueryMasses));
             if obj.FilterSignificantCheckbox.Value == true
@@ -267,7 +265,8 @@ classdef MSDataBase
                 Modifier = [Modifier,obj.HighFoldChange];
             end
             Modifier = all(Modifier,2);
-            
+            QueryMasses(~Modifier)=[];
+            QueryMasses = unique(QueryMasses);
             switch obj.ErrorUnitDropDown.Value
                 case "Da"
                     MZmin = QueryMasses - obj.mzTolEditfield.Value;
@@ -277,11 +276,6 @@ classdef MSDataBase
                     MZmax = QueryMasses + (QueryMasses*obj.mzTolEditfield.Value*10^-6);
             end
             
-            out = cell(length(QueryMasses),1);
-            Connection = obj.DataBaseConnection;
-            
-            Indices = 1:1:length(QueryMasses);
-
             query = ['SELECT DISTINCT NAME, ' ...
                     '	FORMULA, ' ...
                     '	CAS_NUMBER, ' ...
@@ -289,25 +283,87 @@ classdef MSDataBase
                     '	PRECURSOR_TYPE ' ...
                     'FROM MassBankData ' ...
                     'WHERE EXACT_MASS <= '];
-                query = append(query,convertStringsToChars(MZmax + "	AND EXACT_MASS >= " + MZmin));
-
-            for n=Indices(Modifier)
-
-                result = fetch(Connection, query{n});
-
+            query = append(query,convertStringsToChars(MZmax + " AND EXACT_MASS >= " + MZmin));
+            databasefile = obj.DataBaseFile;
+            QueryResults = cell(size(query));
+            parfor n=1:length(QueryMasses)
+                local_connection = sqlite(databasefile)
+                result = fetch(local_connection, query{n});
                 %calculate difference in ppm
                 diff = ((abs(QueryMasses(n)-result.EXACT_MASS))./QueryMasses(n))*10^6;
-
-                result.DELTA = diff;
+                result.DELTA = round(diff,2);
                 result = sortrows(result,"DELTA","ascend");
-
+                close(local_connection);
                 if ~isempty(result)
-                    out{n}=result;
+                    %copy query to all features with same mass
+                    QueryResults{n}=result;
                 end
             end
+            %sort data to feature
+            out = cell(length(obj.Features(:,1)),1);
+            for n=1:size(QueryResults,1)
+                idx = obj.Features(:,1) == QueryMasses(n);
+                out(idx) = QueryResults(n);
+            end
+            out(~Modifier) = {};
             obj.FetchedDataMS1 = out; 
         end
+        
+        function obj = MassBankMS2Query(obj)
+            %Query time
+            QueryMasses = obj.Features(:,1);
+            Modifier = true(size(QueryMasses));
+            if obj.FilterSignificantCheckbox.Value == true
+                Modifier = obj.Significant;
+            end
+            if obj.FilterFoldChangeCheckbox.Value == true
+                Modifier = [Modifier,obj.HighFoldChange];
+            end
+            Modifier = all(Modifier,2);
+            QueryMasses(~Modifier)=[];
+            QueryMasses = unique(QueryMasses);
+            switch obj.ErrorUnitDropDown.Value
+                case "Da"
+                    MZmin = QueryMasses - obj.mzTolEditfield.Value;
+                    MZmax = QueryMasses + obj.mzTolEditfield.Value;
+                case "ppm"
+                    MZmin = QueryMasses - (QueryMasses*obj.mzTolEditfield.Value*10^-6);
+                    MZmax = QueryMasses + (QueryMasses*obj.mzTolEditfield.Value*10^-6);
+            end
+            
+            query = ['SELECT DISTINCT NAME, ' ...
+                    '	FORMULA, ' ...
+                    '	CAS_NUMBER, ' ...
+                    '	EXACT_MASS, ' ...
+                    '	PRECURSOR_TYPE ' ...
+                    '	FRAGMENTATION_TYPE ' ...
+                    '	SPECTRUM ' ...
+                    'FROM MassBankData ' ...
+                    'WHERE EXACT_MASS <= '];
+            query = append(query,convertStringsToChars(MZmax + " AND EXACT_MASS >= " + MZmin));
+            databasefile = obj.DataBaseFile;
+            QueryResults = cell(size(query));
 
+            parfor n=1:length(QueryMasses)
+                local_connection = sqlite(databasefile)
+                result = fetch(local_connection, query{n});
+                if ~isempty(result)
+                    %copy query to all features with same mass
+                    QueryResults{n}=result;
+                end
+                close(local_connection);
+            end
+            %sort data to feature
+            out = cell(length(obj.Features(:,1)),1);
+            for n=1:size(QueryResults,1)
+                idx = obj.Features(:,1) == QueryMasses(n);
+                out(idx) = QueryResults(n);
+            end
+            out(~Modifier) = {};
+            % calculate spectral match score
+
+            obj.FetchedDataMS2 = out; 
+        end
 
         function obj = CheckStatus(obj)
             if isempty(obj.DataBaseFile)
@@ -318,6 +374,7 @@ classdef MSDataBase
                 obj.FilterFragmentationTypeCheckbox.Enable = "off";
                 obj.FilterFragmentationEnergyCheckbox.Enable = "off";
                 obj.FilterSignificantCheckbox.Enable = "off";
+                obj.FilterFoldChangeCheckbox.Enable = "off";
             else
                 obj.MS1SearchButton.Enable = "on";
                 obj.MS2SearchButton.Enable = "on";
@@ -326,6 +383,7 @@ classdef MSDataBase
                 obj.FilterFragmentationTypeCheckbox.Enable = "on";
                 obj.FilterFragmentationEnergyCheckbox.Enable = "on";
                 obj.FilterSignificantCheckbox.Enable = "on";
+                obj.FilterFoldChangeCheckbox.Enable = "on";
             end
 
             if isempty(obj.DataBaseConnection)
@@ -336,6 +394,7 @@ classdef MSDataBase
                 obj.FilterFragmentationTypeCheckbox.Enable = "off";
                 obj.FilterFragmentationEnergyCheckbox.Enable = "off";
                 obj.FilterSignificantCheckbox.Enable = "off";
+                obj.FilterFoldChangeCheckbox.Enable = "off";
             else
                 obj.MS1SearchButton.Enable = "on";
                 obj.MS2SearchButton.Enable = "on";
@@ -344,9 +403,12 @@ classdef MSDataBase
                 obj.FilterFragmentationTypeCheckbox.Enable = "on";
                 obj.FilterFragmentationEnergyCheckbox.Enable = "on";
                 obj.FilterSignificantCheckbox.Enable = "on";
+                obj.FilterFoldChangeCheckbox.Enable = "on";
             end
             drawnow
         end
+
+
     end
 end
 
