@@ -1,7 +1,7 @@
-1.2.0:  Added MS1 databank search.
+1.2.beta1:  Added MS1 databank search.
         Added datapoint labels to File preview plots and parameter preview plots.
         Selecting a cell in the Result table highlights te corresponding feature in vulcano, scatter and cloud plots.
-        
+        Preparation for MS2 evaluation
 
 1.1.0:  Background Code restructure.
         Reduced initial load time.

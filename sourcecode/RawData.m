@@ -122,6 +122,7 @@ classdef RawData
             %Construct an instance of this class
             obj.GroupName = "Group " + GroupCounter;
         end
+        
         function [obj,polarity] = DataCheck(obj)
             % Check Data, number of Scans, Start/End Times
             %Check minimum number of scans
@@ -522,7 +523,7 @@ classdef RawData
             Diff2(1:end-2,:) = diff(smoothed,2);
             numEIC = size(Mat,2);
             IntResults=cell(8,numEIC); %preallocate output
-            for id=1:numEIC
+            parfor id=1:numEIC
                 peaks = AutoCWT(Diff2(:,id),smoothed(:,id),ScanFreq,minSec,maxSec);
                 % Correct Peak Borders
                 peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
@@ -933,12 +934,14 @@ classdef RawData
             Output.Signal2NoiseStorage(idx,:) = [];
             obj.OccurenceFiltered = Removed + sum(idx);
         end
+        
         function Output = GroupAndSampleScaling(obj,Output)
             %GroupScale
             Output.IntensityStorage = Output.IntensityStorage/obj.GroupScale;
             %SampleScale
             Output.IntensityStorage = Output.IntensityStorage./obj.SampScale';
         end
+        
         function obj = CutScansToSize(obj)
             StartTime = obj.Start;
             EndTime = obj.End;
@@ -952,7 +955,8 @@ classdef RawData
             obj.ROICells = tempPeakData;
             obj.TimeCells = tempTimeData;
         end
-        function obj=AutoROI(obj)
+        
+        function obj = AutoROI(obj)
             %%AutoROI Performs fully automated ROI search and augmentation.
             Peaklist = obj.ROICells;
             Timelist = obj.TimeCells;
@@ -1001,6 +1005,7 @@ classdef RawData
             obj.TimeCells = time_end;
             obj.ROImzVec = mzroi_end;
         end
+        
         function obj = AlignScans(obj)
             mzQuan = obj.mzQuantil;
             mzEstim = obj.mzEstimMethod;
@@ -1012,6 +1017,7 @@ classdef RawData
             end
             obj.ROICells = PeakCells;
         end
+        
         function obj = CorrectBaseline(obj)
             WSize = obj.WindowSize;
             SSize = obj.StepSize;
@@ -1036,6 +1042,7 @@ classdef RawData
             end
             obj.ROICells = MSroi;
         end
+        
         function obj = SmoothPeaks(obj)
             Frame = obj.FrameSize;
             Deg = obj.Degree;
@@ -1056,6 +1063,7 @@ classdef RawData
             end
             obj.ROICells = MSroi;
         end
+        
         function obj = AlignPeaks(obj)
             MSroi = obj.ROICells;
             time = obj.TimeCells;
@@ -1087,6 +1095,7 @@ classdef RawData
             obj.ROICells = mat2cell(MSroi,splitVar);
             obj.TimeCells = mat2cell(time,splitVar);
         end
+        
         function obj = FinalizeROI(obj)
             time = obj.TimeCells;
             MSroi = obj.ROICells;
@@ -1120,6 +1129,56 @@ classdef RawData
             %remove temporaries
             obj.TimeCells = [];
             obj.ROICells = [];
+        end
+
+        function obj = MS2CleanUp(obj)
+            %normalize m/z intensities then remove m/z with Intensity < 5%
+            % Removes all m/z values with intensity below thresh.
+            % Remove all Spectra with only one mass peak
+            %% Clean Data
+            PeakData = obj.PeakDataMSn;
+            TimeData = obj.TimeDataMSn;
+            PrecursorData = obj.Precursor;
+            ColType = obj.CollisionType;
+            ColEnergy = obj.CollisionEnergy;
+            parfor k = 1 : size(PeakData,1)
+                Peak = PeakData{k,1};
+                [nrows,~] = size(Peak);
+                if nrows == 1
+                    PeakData{k,1}=Peak;
+                else
+                    isBadSpectrum = false(size(Peak));
+                    for j = 1:nrows
+                        data=Peak{j,1};
+                        %downsample Peak
+                        data = ResampleMS2Spectra(data);
+                        idx=data(:,2) < 100;
+                        data(idx,:)=[];
+                        % Normalize Intensities
+                        %data(:,2) = data(:,2)./max(data(:,2));
+                        % idx=data(:,2)< 0.05;
+                        % data(idx,:)=[];
+                        if ~isempty(data)
+                            isBadSpectrum(j)=max(data(:,1))-min(data(:,1))<1;
+                            Peak{j,1}=data;
+                        else
+                            isBadSpectrum(j) = true;
+                            Peak{j,1}=data;
+                        end
+                    end
+                    Peak(isBadSpectrum)=[];
+                    TimeData{k}(isBadSpectrum)=[];
+                    PrecursorData{k}(isBadSpectrum,:)=[];
+                    ColType{k}(isBadSpectrum,:)=[];
+                    ColEnergy{k}(isBadSpectrum,:)=[];
+                    PeakData{k,1}=Peak;
+                end
+            end
+            obj.PeakDataMSn = PeakData;
+            obj.TimeDataMSn = TimeData;
+            obj.Precursor = PrecursorData;
+            obj.CollisionType = ColType;
+            obj.CollisionEnergy = ColEnergy;
         end
     end
     %%

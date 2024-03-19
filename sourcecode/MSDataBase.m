@@ -130,6 +130,10 @@ classdef MSDataBase
             end
             MassBankRoot = uigetdir(pwd,'Open MassBank data main folder');
             figure(obj.Window);
+            if isempty(MassBankRoot)
+                    uialert(obj.Window,"Task aborted by user","No database file created","Icon","warning")
+                    return
+            end
             d =  uiprogressdlg(obj.Window,'Title','Building Database',...
                 'Indeterminate','on');
             drawnow
@@ -149,7 +153,7 @@ classdef MSDataBase
 
         function DecodedMS2Data = DecodeString(obj,EncodedStrings)
             DecodedMS2Data=cell(size(EncodedStrings,1),1);
-            parfor n=size(EncodedStrings,1)
+            parfor n=1:size(EncodedStrings,1)
                 Decoded = matlab.net.base64decode(EncodedStrings(n));
                 Decoded = typecast(Decoded,'double');
                 DecodedMS2Data{n} = reshape(Decoded,[],3);
@@ -280,7 +284,6 @@ classdef MSDataBase
                     '	FORMULA, ' ...
                     '	CAS_NUMBER, ' ...
                     '	EXACT_MASS, ' ...
-                    '	PRECURSOR_TYPE ' ...
                     'FROM MassBankData ' ...
                     'WHERE EXACT_MASS <= '];
             query = append(query,convertStringsToChars(MZmax + " AND EXACT_MASS >= " + MZmin));
@@ -291,8 +294,8 @@ classdef MSDataBase
                 result = fetch(local_connection, query{n});
                 %calculate difference in ppm
                 diff = ((abs(QueryMasses(n)-result.EXACT_MASS))./QueryMasses(n))*10^6;
-                result.DELTA = round(diff,2);
-                result = sortrows(result,"DELTA","ascend");
+                result.DELTA_ppm = round(diff,2);
+                result = sortrows(result,"DELTA_ppm","ascend");
                 close(local_connection);
                 if ~isempty(result)
                     %copy query to all features with same mass

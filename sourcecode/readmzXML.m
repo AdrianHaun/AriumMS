@@ -99,7 +99,7 @@ retentionTime(idx)=[];
 retentionTime = cellfun(@(x) sscanf(x,'PT %f'), retentionTime);
 
 if options.MSLevel > 1
-    varargout{1} = PrecursorMass;
+    varargout{1} = str2double(PrecursorMass);
     varargout{2} = CollisionEnergy;
     varargout{3} = FragMethod;
 else

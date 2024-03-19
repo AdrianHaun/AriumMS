@@ -29,7 +29,7 @@ classdef EvaluationOptions
         function obj = EvaluationOptions(CallingApp)
             %EVALUATIONOPTIONS Construct an instance of this class
             %   Detailed explanation goes here
-            obj.Container = uipanel(CallingApp.MainWindow,"Title","EvaluationOptions","BackgroundColor",[0.94,0.94,0.94],"Position",[10,10,1155,655]);
+            obj.Container = uipanel(CallingApp.MainWindow,"Title","EvaluationOptions","BackgroundColor",[0.94,0.94,0.94],"Position",[10,10,1155,655],Visible="off");
             obj.DataVisualizationSubPanel = uipanel(obj.Container,"Title","Data Visualization","BackgroundColor",[0.9,0.9,0.9],"Position",[10,10,190,615]);
             obj.MultivariateAnalysisSubPanel = uipanel(obj.Container,"Title","Data Analysis","BackgroundColor",[0.9,0.9,0.9],"Position",[210,10,550,85]);
            %% Visualization

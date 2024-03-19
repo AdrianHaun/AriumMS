@@ -15,7 +15,7 @@ classdef FeatData
         IntensityArrayNoUniques     (:,:) double
         IdentifierArray             (:,:) double
         IdentifierArrayNoUniques    (:,:) double
-        XIC                         (:,:) cell 
+        XIC                         (:,:) cell
         NameStringArray             (:,:) string
         NameStringArrayNoUniques    (:,:) string
         RetentionTimeArray          (:,:) double
@@ -33,10 +33,14 @@ classdef FeatData
         FoldChanges                 (1,:) cell
         FullFoldChanges             (1,:) cell
         VSNaming                    (1,:) cell
-        FoundInReferenceGroup       (1,:) cell  
+        FoundInReferenceGroup       (1,:) cell
         OriginalGroup               (:,:) string
         InGroup                     (:,:) string
-        CombinedSampleNames         (1,:) cell 
+        CombinedSampleNames         (1,:) cell
+        MSnSpectra                  (:,:) cell
+        MergedMSnSpectra            (:,:) cell
+        InnerFeatScores             (:,:) cell
+        BetweenGroupScores          (:,:) cell
     end
 
     methods
@@ -64,13 +68,13 @@ classdef FeatData
             if isfield(FullOutput,"OriginalGroup")
                 obj.OriginalGroup = FullOutput.OriginalGroup;
                 % Initialize mergedString array
-            mergedString = cell(size(FullOutput.OriginalGroup, 1), 1);
-            % Iterate through each row
-            for i = 1:size(FullOutput.OriginalGroup, 1)
-                % Concatenate non-empty strings with the appropriate delimiter
-                mergedString{i} = strjoin(FullOutput.OriginalGroup(i, ~cellfun('isempty', FullOutput.OriginalGroup(i, :))), ', ');
-            end
-            obj.InGroup = string(mergedString);
+                mergedString = cell(size(FullOutput.OriginalGroup, 1), 1);
+                % Iterate through each row
+                for i = 1:size(FullOutput.OriginalGroup, 1)
+                    % Concatenate non-empty strings with the appropriate delimiter
+                    mergedString{i} = strjoin(FullOutput.OriginalGroup(i, ~cellfun('isempty', FullOutput.OriginalGroup(i, :))), ', ');
+                end
+                obj.InGroup = string(mergedString);
             else
                 obj.OriginalGroup = repmat(obj.GroupName,size(obj.NameStringArray,1),1);
                 obj.InGroup = obj.OriginalGroup;
@@ -95,7 +99,7 @@ classdef FeatData
                 ExtractedString(ExtractedString=="")=[];
                 obj.InGroup(n) = join(ExtractedString,",");
             end
-%remove Features with no counterpart in other group
+            %remove Features with no counterpart in other group
             idx=any(obj.UniqueFeature,2);
             obj.IntensityArrayNoUniques = obj.FullUnscaledIntensityArray(~idx,:);
             obj.IdentifierArrayNoUniques = obj.IdentifierArray(~idx,:);
@@ -152,7 +156,7 @@ classdef FeatData
                 FoldArray(ISUnique,:) = [];
                 obj.FoldChanges{g} = FoldArray;
                 obj.VSNaming{g} = VSNamingArray;
-                
+
             end
         end
         function obj = CalculateSignificance(obj,HochbergFilter,FDRValue)
@@ -178,7 +182,7 @@ classdef FeatData
                 obj.SignificantFeature{g}=SignificantFeatureArray;
             end
         end
-        
+
         function obj = applyFeatureScaling(obj,TransformType,ScaleType)
             FeatIntensity = obj.CleanFullIntensityArray;
             FeatIntensity(FeatIntensity==0)=NaN;
@@ -229,7 +233,7 @@ classdef FeatData
             obj.AverageIntensities = horzcat(AverageIntensityCell{:});
             StandardDeviationCell = horzcat(cellfun(@(x) std(x,[],2,'omitnan'),Subgroups,'UniformOutput',false));
             obj.StandardDeviations = horzcat(StandardDeviationCell{:});
-            
+
 
             %update Average Intensity, standard Deviation and Fold Changes
             %without Uniques
@@ -243,12 +247,12 @@ classdef FeatData
             obj=obj.CalculateFoldChanges;
 
         end
-        
+
         function obj = RefGroupScaling(obj,GroupAssignment)
             if all(GroupAssignment(:,2)=='none')
                 text="no Reference Group selected";
-                    notInRef{1,1}=repmat(text,size(obj.IdentifierArray,1),1);
-                    obj.FoundInReferenceGroup=repmat(notInRef,size(obj.NumberOfFilesArray));
+                notInRef{1,1}=repmat(text,size(obj.IdentifierArray,1),1);
+                obj.FoundInReferenceGroup=repmat(notInRef,size(obj.NumberOfFilesArray));
 
             else
                 %calculate Averages
@@ -289,5 +293,139 @@ classdef FeatData
                 end
             end
         end
+
+        function obj = AssignSpectra2Features(obj,RawDataArray,mzTol,TolUnit,RTTol)
+            GroupNames = [RawDataArray.GroupName];
+            Storage = cell(size(obj.OriginalGroup));
+            Storage = reshape(Storage,[],1);
+            PeakData = cell(size(RawDataArray));
+            TimeData = cell(size(RawDataArray));
+            FragType = cell(size(RawDataArray));
+            FragEnergy = cell(size(RawDataArray));
+            Precursor = cell(size(RawDataArray));
+            %gather MS2Data
+            for n=1:size(RawDataArray,2)
+                PeakData{n} = vertcat(RawDataArray(n).PeakDataMSn{:});
+                TimeData{n} = vertcat(RawDataArray(n).TimeDataMSn{:});
+                FragType{n} = vertcat(RawDataArray(n).CollisionType{:});
+                FragEnergy{n} = vertcat(RawDataArray(n).CollisionEnergy{:});
+                %convert pseudomolecular ion precursor to molecular
+                %precursor
+                switch RawDataArray(n).MSPolarity
+                    case "negative"
+                        Precursor{n} = round(vertcat(RawDataArray(n).Precursor{:}) + 1.007825,5);
+                    case "positive"
+                        Precursor{n} = round(vertcat(RawDataArray(n).Precursor{:}) - 1.007825,5);
+                end
+            end
+            FeatMZ = obj.IdentifierArray(:,1);
+            FeatMZ = repmat(FeatMZ,1,size(obj.OriginalGroup,2));
+            FeatMZ = reshape(FeatMZ,[],1);
+            FeatTime = obj.IdentifierArray(:,2);
+            FeatTime = repmat(FeatTime,1,size(obj.OriginalGroup,2));
+            FeatTime = reshape(FeatTime,[],1);
+            FeatGroups = obj.OriginalGroup;
+            FeatGroups = reshape(FeatGroups,[],1);
+            parfor nFeat = 1:size(FeatMZ,1)
+                FeatGroup = FeatGroups(nFeat);
+                %determine wich group to search
+                [~,index] = ismember(FeatGroup,GroupNames);
+                idx = [];
+                if strcmp(FeatGroup,"")
+                    continue
+                else
+                    switch TolUnit
+                        case "Da"
+                            idx = abs(FeatMZ(nFeat)-Precursor{index})<= mzTol & abs(TimeData{index}-FeatTime(nFeat))<= RTTol;
+                        case "ppm"
+                            idx = abs(((FeatMZ(nFeat)-Precursor{index})/FeatMZ(nFeat))*10^6)<= mzTol & abs(TimeData{index}-FeatTime(nFeat))<= RTTol;
+                    end
+                    Spectra = PeakData{index}(idx);
+                    Times = TimeData{index}(idx);
+                    if ~isempty(Spectra)
+                        % Sort Spectra time wise
+                        [~,index] = sort(Times,'ascend');
+                        Spectra = Spectra(index);
+                        %merge Spectra into matrix
+                        Spectra = mergeMatricesWithTolerance(Spectra,mzTol,TolUnit);
+                        %sort Spectra matrix with ascending m/z
+                        [~,order] = sort(Spectra(:,1),'ascend');
+                        Storage{nFeat,1} = Spectra(order,:);
+                    end
+                end
+            end
+            obj.MSnSpectra = reshape(Storage,size(obj.OriginalGroup));
+            %calculate all scores within a feature
+            obj.InnerFeatScores = cellfun(@InnerFeatScores,obj.MSnSpectra,'UniformOutput',false);
+            % merge spectra with score >=850
+            obj.MergedMSnSpectra = cellfun(@MergeSameSpectra,obj.MSnSpectra,obj.InnerFeatScores,'UniformOutput',false);
+        end
+
+        function obj = BTEMCrossRef(obj)
+            %check if multpiple spectra per Feature
+
+            %perform SVD to determine number of possible species
+            Intensities = cellfun(@(x) x(:,2:end),obj.MSnSpectra,'UniformOutput',false);
+            NumSpecies = cellfun(@DetermineNumComponents,Intensities,'UniformOutput',false);
+            idx = cellfun(@isempty,NumSpecies);
+            NumSpecies(idx) = {0};
+            NumSpecies = cell2mat(NumSpecies);
+            HasMultiple = NumSpecies > 1;
+            %perform BTEM to calculate pure spectra
+            Spectras = obj.MSnSpectra;
+            PureSpectra = cell(size(Spectras));
+            [row,col] = size(HasMultiple);
+            for c = 1:col
+                for r = 1:row
+                    if HasMultiple(r,c) == false
+                        continue
+                    else
+                        Data = Spectras{r,c}(:,2:end);
+                        Masses = Spectras{r,c}(:,1);
+                        SusComp = NumSpecies(r,c);
+                        PureSpectra{r,c} = PerformBTEM(Data,Masses,SusComp);
+                    end
+                end
+            end
+
+
+            % compare pure spectra with spectra of features with same mass
+        end
+
+        function obj = ScoresBetweenGroups(obj,mzTol,TolUnit)
+            %calculate scores of remaining spectra between groups
+            obj.BetweenGroupScores =  OuterFeatScores(obj.MSnSpectra,mzTol,TolUnit);
+
+            %any matching spectra
+
+            %no matching spectra
+
+        end
+
+        function WithinScores = ScoresWithinGroups(obj,mzTol,TolUnit)
+            mzlist = obj.IdentifierArray(:,1);
+            uniqueMZ = unique(mzlist);
+            Spectra = obj.MSnSpectra;
+            numGroups = size(Spectra,2);
+            WithinScores = cell(length(uniqueMZ),numGroups);
+            parfor n = 1:length(uniqueMZ)
+                for G = 1:numGroups
+                    id = mzlist == uniqueMZ(n);
+                    QuerySpectra = Spectra(id,G);
+                    idx = cellfun(@isempty, QuerySpectra);
+                    QuerySpectra(idx) = [];
+                    if size(QuerySpectra,1) < 2
+                        continue
+                    end
+                    WithinScores{n,G} = OuterFeatScores(QuerySpectra',mzTol,TolUnit);
+                end
+            end
+
+            %merge into matrix
+
+            %compare
+        end
     end
+
+
 end
