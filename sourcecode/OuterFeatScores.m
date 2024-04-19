@@ -9,11 +9,11 @@ for n = 1:size(MSnSpectraCells,1)
         continue
     end
     Spectras = MSnSpectraCells(n,:);
-    nSpectras = cellfun(@(x) size(x,2)-1,Spectras);
 
+    nSpectras = cellfun(@(x) size(x,2)-1,Spectras);
+    nSpectras = max(nSpectras,0);
     %Merge into Matrix
     Spectras = mergeMatricesWithTolerance(Spectras',mzTol,TolUnit);
-
     Spectras(:,1) = [];
     %scale each spectrum
     Spectras = Spectras./max(Spectras);

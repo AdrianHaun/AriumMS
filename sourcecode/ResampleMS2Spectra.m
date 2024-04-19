@@ -24,8 +24,8 @@ for i = 1:size(sortedData, 1)
         currentSum = currentSum + intensity;
         count = count + 1;
     else
-        % Average the mz values in the group
-        averageMass = sum(currentGroup) / count;
+        % Take highest mz values in the group
+        averageMass = max(currentGroup,[],"all");
         
         % Store the averaged mass and corresponding summed intensity
         groupedMasses = [groupedMasses; averageMass];
@@ -39,7 +39,7 @@ for i = 1:size(sortedData, 1)
 end
 
 % Handle the last group
-averageMass = sum(currentGroup) / count;
+averageMass = max(currentGroup,[],"all");
 groupedMasses = [groupedMasses; averageMass];
 groupedIntensities = [groupedIntensities; currentSum];
 % Display the result

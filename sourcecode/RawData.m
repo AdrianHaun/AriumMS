@@ -1,5 +1,5 @@
 classdef RawData
-    % Class for storing group settings and performing funktions from Raw
+    % Class for storing group settings and performing functions from Raw
     % data until Feature data stage
     properties
         %% Processing Parameters
@@ -83,7 +83,7 @@ classdef RawData
         TimeDataMSn (:,1) cell
         Precursor   (:,1) cell
         CollisionType   (:,1) cell
-        CollisionEnergy   (:,1) cell
+        CollisionEnergy (:,1) cell
         % processing temporaries
         ROICells    (:,1) cell
         TimeCells   (:,1) cell
@@ -509,7 +509,7 @@ classdef RawData
         function IntResults = CWTIntegrate(obj,Index)
             Mat = obj.ROIMat(:,Index);
             maxSN = obj.minSignalNoise;
-            % prepare wavelet filterbank
+            % prepare wavelet filter-bank
             MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
             MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
             times = obj.timeVec;
@@ -523,7 +523,7 @@ classdef RawData
             Diff2(1:end-2,:) = diff(smoothed,2);
             numEIC = size(Mat,2);
             IntResults=cell(8,numEIC); %preallocate output
-            parfor id=1:numEIC
+            for id=1:numEIC
                 peaks = AutoCWT(Diff2(:,id),smoothed(:,id),ScanFreq,minSec,maxSec);
                 % Correct Peak Borders
                 peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
@@ -975,7 +975,7 @@ classdef RawData
                 nrows=length(P);
                 [mzlist{d,1},MSroilist{d,1},~]=ROIpeaks2(P,Intthresh,Masserror,ErrorUnit,minroiSize,nrows,T);
             end
-            if length(mzlist) == 1 %Skip Augmentation if only one Sample
+            if isscalar(mzlist) %Skip Augmentation if only one Sample
                 MSroi_end=MSroilist{1,1};
                 mzroi_end=mzlist{1,1};
                 time_end=Timelist{1,1};
@@ -1133,7 +1133,7 @@ classdef RawData
 
         function obj = MS2CleanUp(obj)
             %normalize m/z intensities then remove m/z with Intensity < 5%
-            % Removes all m/z values with intensity below thresh.
+            % Removes all m/z values with intensity below 100.
             % Remove all Spectra with only one mass peak
             %% Clean Data
             PeakData = obj.PeakDataMSn;
@@ -1154,10 +1154,10 @@ classdef RawData
                         data = ResampleMS2Spectra(data);
                         idx=data(:,2) < 100;
                         data(idx,:)=[];
-                        % Normalize Intensities
-                        %data(:,2) = data(:,2)./max(data(:,2));
-                        % idx=data(:,2)< 0.05;
-                        % data(idx,:)=[];
+                        % remove rel intensities < 1%
+                        normData = data(:,2)./max(data(:,2));
+                        idx=normData < 0.01;
+                        data(idx,:)=[];
                         if ~isempty(data)
                             isBadSpectrum(j)=max(data(:,1))-min(data(:,1))<1;
                             Peak{j,1}=data;

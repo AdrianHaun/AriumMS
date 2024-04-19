@@ -55,7 +55,7 @@ for irow=1:nrows
         if irow==1,mzroi=mz(1);end
         
         
-        nmz=size(mz);
+        nmz=size(mz,1);
         
         for i=1:nmz
             

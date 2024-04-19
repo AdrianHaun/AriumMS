@@ -1,7 +1,21 @@
-1.2.beta1:  Added MS1 databank search.
+1.2.alpha2:  MS2 data processing is now supported.
+        MSn spectra of features within a group are compared to filter duplicate features.
+        Features are separated between groups if there are no matching spectra.
+        Unnecessary variables have been removed to save memory. This could cause errors with old saved projects.
+        Added MS2 database search.
+        Clicking on the score of an MS2 database search result plots the feature and the database spectrum in a new window.
+        Added local HMDB database generation. To generate the database you need a metabolite file (xml) and MS-MS spectra files (xml), both can be downloaded here: https://hmdb.ca/downloads
+        Predicted and experimental spectra can be combined by unzipping both .zip files into a single folder. 
+        
+    Minor changes:
+    Fixed:  Axis labels of plots are covered in some cases.
+            Typographical errors
+        
+             
+1.2.alpha1:  Added MS1 databank search.
         Added datapoint labels to File preview plots and parameter preview plots.
         Selecting a cell in the Result table highlights te corresponding feature in vulcano, scatter and cloud plots.
-        Preparation for MS2 evaluation
+        
 
 1.1.0:  Background Code restructure.
         Reduced initial load time.

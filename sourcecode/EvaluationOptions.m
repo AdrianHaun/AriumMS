@@ -1,5 +1,5 @@
 classdef EvaluationOptions
-%% Object for storing Evaluationpanel UI elements
+%% Object for storing Evaluation panel UI elements
     
     properties
         Container                       matlab.ui.container.Panel
@@ -19,7 +19,7 @@ classdef EvaluationOptions
         VolcanoButton                   matlab.ui.control.Button
         HeatmapButton                   matlab.ui.control.Button
         PCAButton                       matlab.ui.control.Button
-        DatabaseButton                    matlab.ui.control.Button
+        DatabaseButton                  matlab.ui.control.Button
         ExportButton                    matlab.ui.control.Button
         PlotSpace                       matlab.graphics.layout.TiledChartLayout
         PlotTiles                       matlab.graphics.axis.Axes
@@ -86,7 +86,7 @@ classdef EvaluationOptions
             
             %% Plot Area
             numRows = ceil(size(CallingApp.Data,2)/2);
-            obj.PlotSpace = tiledlayout(obj.Container,2,numRows,"TileSpacing","tight",Units="pixels",Position=[255 145 880 450],Visible="on");
+            obj.PlotSpace = tiledlayout(obj.Container,2,numRows,"TileSpacing","tight",Padding="compact",Units="pixels",OuterPosition=[200 100 975 550],PositionConstraint="outerposition",Visible="on");
         end
     end
 end

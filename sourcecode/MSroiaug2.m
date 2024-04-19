@@ -2,10 +2,10 @@ function [MSroi_aug,mzroi_aug,time_aug] = MSroiaug2(MSroi1,MSroi2,mzroi1,mzroi2,
 
 % INPUT
 % MSroi1 and MSroi2, the two MS matrices to augment
-% mzroi1,mzroi2, the two mzroi values consoidered in each matrix
-% mzerror is a parameter to define the diff between two mazroi values
-% to be considerd the same (+- mzerror)
-% tresh, threshold value to be considered in the augmented MSroi_aug and mzroi_aug
+% mzroi1,mzroi2, the two mzroi values considered in each matrix
+% mzerror is a parameter to define the diff between two mzroi values
+% to be considers the same (+- mzerror)
+% thresh, threshold value to be considered in the augmented MSroi_aug and mzroi_aug
 % time1 and time2 are the two elution time measurements
 %
 % OUTPUT
