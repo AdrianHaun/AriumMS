@@ -34,6 +34,8 @@ classdef FeatData
         MSnSpectra                  (:,:) cell
         FilteredMSnSpectra          (:,:) cell
         FeatureMSnSpectra           (:,1) cell
+        dataBaseResultsMS1          (:,1) cell
+        dataBaseResultsMS2          (:,1) cell
         DBScoreSpectraID            (:,:) cell
         DataBaseSpectra             (:,:) cell
     end
@@ -286,7 +288,14 @@ classdef FeatData
             end
         end
 
-        function obj = AssignSpectra2Features(obj,RawDataArray,mzTol,TolUnit,RTTol)
+        function obj = AssignSpectra2Features(obj,RawDataArray)
+            %%%%%%%%%%%%%
+            % test tolerances
+            mzTol = 0.05;
+            TolUnit = "Da";
+            RTTol = 60;
+            mergeMZtol = 0.015;
+            %%%%%%%%%%%%%
             GroupNames = [RawDataArray.GroupName];
             Storage = cell(size(obj.OriginalGroup));
             Storage = reshape(Storage,[],1);
@@ -339,7 +348,7 @@ classdef FeatData
                         [~,index] = sort(Times,'ascend');
                         Spectra = Spectra(index);
                         %merge Spectra into matrix
-                        Spectra = mergeMatricesWithTolerance(Spectra,0.05,"Da");
+                        Spectra = mergeMatricesWithTolerance(Spectra,mergeMZtol,"Da");
                         %sort Spectra matrix with ascending m/z
                         [~,order] = sort(Spectra(:,1),'ascend');
                         Storage{nFeat,1} = Spectra(order,:);
@@ -386,8 +395,12 @@ classdef FeatData
         end
 
         function obj = ScoresWithinGroups(obj)
-            mzTol = 0.1;
+            %%%%%%%%%%%%%
+            % test tolerances
+            mzTol = 0.05;
             TolUnit = "Da";
+            mergeMZtol = 0.015;
+            %%%%%%%%%%%%%
             RemoveRow = [];
             mzlist = obj.IdentifierArray(:,1);
             uniqueMZ = unique(mzlist);
@@ -411,7 +424,7 @@ classdef FeatData
                         continue
                     else
                         %get features to merge
-                        Spectra{row(1),G} = mergeMatricesWithTolerance(QuerySpectra,0.1,"Da");
+                        Spectra{row(1),G} = mergeMatricesWithTolerance(QuerySpectra,mergeMZtol,"Da");
                         %store row Index for deletion
                         RemoveRow = [RemoveRow;row(2:end)];
                     end
@@ -442,8 +455,12 @@ classdef FeatData
         end
 
         function obj = ProcessGroupMSnSpectra(obj)
-            mzTol = 0.1;
+            %%%%%%%%%%%%%
+            % test tolerances
+            mzTol = 0.05;
             mzTolUnit = "Da";
+            mergeMZtol = 0.015;
+            %%%%%%%%%%%%%
             obj = obj.ScoresWithinGroups;
             MeasuredSpectra = obj.FilteredMSnSpectra;
             GroupScores =  OuterFeatScores(MeasuredSpectra,mzTol,mzTolUnit);
@@ -475,7 +492,7 @@ classdef FeatData
                             Storage{Group,1} = Spectra{1,Group}(:,[1,SpecID(:,Group)']);
                         end
                     end
-                    FullMerge{n,1} = mergeMatricesWithTolerance(Storage,mzTol,mzTolUnit);
+                    FullMerge{n,1} = mergeMatricesWithTolerance(Storage,mergeMZtol,"Da");
 
 
                     continue
@@ -645,7 +662,7 @@ classdef FeatData
             %store final Feature Spectra
             Storage = cell(size(MeasuredSpectra,1),1);
             parfor n = 1:size(MeasuredSpectra,1)
-                Storage{n,1} = mergeMatricesWithTolerance(MeasuredSpectra(n,:),0.1,"Da");
+                Storage{n,1} = mergeMatricesWithTolerance(MeasuredSpectra(n,:),mergeMZtol,"Da");
             end
         	obj.FeatureMSnSpectra = Storage;
         end

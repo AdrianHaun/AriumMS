@@ -6,8 +6,6 @@ classdef MSDataBase
 
         DataBaseFile    (1,1) string
         Features        (:,:) double
-        FetchedDataMS1  (:,1) cell
-        FetchedDataMS2  (:,1) cell
         Significant     (:,1) logical
         HighFoldChange  (:,1) logical
         FoundInGroup    (:,:) string
@@ -45,6 +43,7 @@ classdef MSDataBase
             obj.HighFoldChange = Fold >= CallingApp.minFold;
             obj.FoundInGroup = CallingApp.FeatureData.InGroup;
             obj.IonizationNames = ["EI";"CI";"ESI";"APCI";"APPI"];
+            obj.DataBaseFile = CallingApp.dataBaseFile;
             %build UIelements
             obj.Window = uifigure("WindowStyle","normal",...
                 "Name","Database Searcher",...
@@ -489,7 +488,7 @@ classdef MSDataBase
             uialert(obj.Window,"Local database generation successfull","Database file created","Icon","success")
 
         end
-        function obj = DataBaseMS1Query(obj)
+        function out = DataBaseMS1Query(obj)
             QueryMasses = obj.Features(:,1);
             Modifier = true(size(QueryMasses));
             if obj.FilterSignificantCheckbox.Value == true
@@ -538,10 +537,9 @@ classdef MSDataBase
                 out(idx) = QueryResults(n);
             end
             out(~Modifier) = {};
-            obj.FetchedDataMS1 = out;
         end
 
-        function [DBSpectra,SpectraIndexStorage,obj] = DataBaseMS2Query(obj,MeasuredSpectra)
+        function [ResultStorage,DBSpectra,SpectraIndexStorage] = DataBaseMS2Query(obj,MeasuredSpectra)
             %Query time
             databasefile = obj.DataBaseFile;
             QueryMasses = obj.Features(:,1);
@@ -619,7 +617,7 @@ classdef MSDataBase
             Scores = cell(1,size(MeasuredSpectra,2));
             parfor n = 1:size(MeasuredSpectra,2)
                 Spectra = [MeasuredSpectra(:,n), DBSpectra];
-                Scores{1,n} = OuterFeatScores(Spectra,0.1,"Da");
+                Scores{1,n} = OuterFeatScores(Spectra,0.015,"Da");
             end
             Scores = horzcat(Scores{:});
             %% get indices of high score spectra
@@ -632,7 +630,7 @@ classdef MSDataBase
                     continue
                 else
                     %get Entry index and Score
-                    idx = SC(:,1) >= 850;
+                    idx = SC(:,1) >= 800;
                     Val = SC(idx,:);
                     %filter duplicates and sort
                     Val = unique(Val,"rows");
@@ -644,12 +642,13 @@ classdef MSDataBase
                     Result.ID_MATCH_SCORE = Val(:,1);
                     [Result,id] = unique(Result,"rows");
                     Val = Val(id,:);
-                    [~,id] = sort(Result.DELTA_ppm,'ascend');
-                    ResultStorage{n,1} = Result(id,:);
-                    SpectraIndexStorage{n,1} = Val(id,:);
+                    if ~isempty(Val)
+                        [~,id] = sort(Result.ID_MATCH_SCORE,'descend');
+                        ResultStorage{n,1} = Result(id,:);
+                        SpectraIndexStorage{n,1} = Val(id,:);
+                    end
                 end
             end
-            obj.FetchedDataMS2 = ResultStorage;
 
         end
 
@@ -678,8 +677,6 @@ classdef MSDataBase
 
             drawnow
         end
-
-
     end
 end
 

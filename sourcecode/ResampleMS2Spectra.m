@@ -1,7 +1,7 @@
 function result = ResampleMS2Spectra(Spectrum)
 
 % Tolerance value for grouping masses
-tolerance = 0.1;
+tolerance = 0.05;
 
 % Sort the data based on mz values
 sortedData = sortrows(Spectrum, 1);

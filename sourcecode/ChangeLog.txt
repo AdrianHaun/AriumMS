@@ -1,3 +1,9 @@
+1.2.alpha3:  database search results are now saved in the project file.
+        fixed: the database file must be reselected each time the database searcher is opened.
+               incorrectly calculated identity match factor between spectra when no matching mass peaks are present.
+               Database search results contain empty tables.
+               Results of the MS2 database search are not sorted by score.
+
 1.2.alpha2:  MS2 data processing is now supported.
         MSn spectra of features within a group are compared to filter duplicate features.
         Features are separated between groups if there are no matching spectra.

@@ -14,7 +14,7 @@
              
 1.2.alpha1:  Added MS1 databank search.
         Added datapoint labels to File preview plots and parameter preview plots.
-        Selecting a cell in the Result table highlights te corresponding feature in vulcano, scatter and cloud plots.
+        Selecting a cell in the Result table highlights the corresponding feature in volcano, scatter and cloud plots.
         
 
 1.1.0:  Background Code restructure.

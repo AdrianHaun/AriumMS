@@ -1,17 +1,17 @@
 function [mzroi,MSroi,roicell]=ROIpeaks2(peaks,thresh,mzerror,ErrorUnit,minroi,nrows,time)
 % 
 % This function allows building a MS data matrix from structure variable peaks 
-% selecting only the regions of interest (roi). These regions are defined acording to 
-% the following input parameters: thresh, mzeror and minroi 
+% selecting only the regions of interest (roi). These regions are defined according to 
+% the following input parameters: thresh, mzerror and minroi 
 % 
 % INPUT
 % % peaks is the cell variable containing MS measurements with as many cells 
 % as MS spectra/retention times (nrows). In every cell, mz and MS intensities 
 % are given for every spectrum (every cell/MS spectrum has different lengths)
-% % thresh is a parameter to filter significative MS intensities, 
+% % thresh is a parameter to filter significant MS intensities, 
 % i.e thresh = 0.1% max measured intensity (max(max(MSroi))
 % % mzerror is a parameter to define the width of mz experimental values in peaks
-% to be considered coming from the same theoreical mz value 
+% to be considered coming from the same theoretical mz value 
 % % minroi minimum number of elution times to be considered in a roi (e.g. 3)
 % % nrows number of cells/rows/spectra of the variable peaks to be processed
 % % time elution (retention) times corresponding to cells/rows/spectra 
@@ -29,7 +29,7 @@ function [mzroi,MSroi,roicell]=ROIpeaks2(peaks,thresh,mzerror,ErrorUnit,minroi,n
 % roicell{:,5}= mzroi, final mz balue of the considered ROI (mean of all mz values 
 % included in ROI 
 %
-% e.g. mzroi,MSroi,roicell]=ROIpeaksnew(peaks,1000,0.01,10,1899,time);
+% e.g. mzroi,MSroi,roicell]=ROIpeaks2(peaks,1000,0.01,10,1899,time);
 % where thresh=1000, mzerror=0.01 and minroi=10
 % background in MSroi is MSroi=randn(nrows,nmzroi).*0.3*thresh;
 % Adjustments: Addition of random noise removed
@@ -91,8 +91,6 @@ for irow=1:nrows
         end
         
     end
-    
-    
 end
 
 % sort mzroi values

@@ -523,7 +523,7 @@ classdef RawData
             Diff2(1:end-2,:) = diff(smoothed,2);
             numEIC = size(Mat,2);
             IntResults=cell(8,numEIC); %preallocate output
-            for id=1:numEIC
+            parfor id=1:numEIC
                 peaks = AutoCWT(Diff2(:,id),smoothed(:,id),ScanFreq,minSec,maxSec);
                 % Correct Peak Borders
                 peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
@@ -1156,7 +1156,7 @@ classdef RawData
                         data(idx,:)=[];
                         % remove rel intensities < 1%
                         normData = data(:,2)./max(data(:,2));
-                        idx=normData < 0.01;
+                        idx=normData < 0.001;
                         data(idx,:)=[];
                         if ~isempty(data)
                             isBadSpectrum(j)=max(data(:,1))-min(data(:,1))<1;
