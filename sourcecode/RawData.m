@@ -226,10 +226,10 @@ classdef RawData
             obj = obj.CutScansToSize;
             obj.nScans = cellfun(@numel,obj.TimeCells);
             if obj.MSalign == true
-                obj = obj.AlignScans;
+                obj = obj.AlignScans(false);
             end
             % ROI Search
-            obj = obj.AutoROI;
+            obj = obj.AutoROI(false);
 
             % Average BLK
             if obj.BLKSubtraction == true && nBLK > 1
@@ -240,18 +240,18 @@ classdef RawData
                 obj = obj.removeContaminants;
             end
 
-            % Baseline Corrention
+            % Baseline Correction
             if obj.BaseCorr == true
-                obj = obj.CorrectBaseline;
+                obj = obj.CorrectBaseline(false);
             end
             % Smoothing
             if obj.Smoothing == true
-                obj = obj.SmoothPeaks;
+                obj = obj.SmoothPeaks(false);
             end
 
             % Peak Align
             if obj.Peakalign == true && nData > 1
-                obj = obj.AlignPeaks;
+                obj = obj.AlignPeaks(false);
             end
 
             if obj.BLKSubtraction == true % Separate Blank data from Sample data
@@ -947,7 +947,7 @@ classdef RawData
             EndTime = obj.End;
             tempPeakData = obj.PeakDataMS1;
             tempTimeData = obj.TimeDataMS1;
-            parfor n = size(tempTimeData,1)
+            parfor n = size(tempPeakData,1)
                 idx = tempTimeData{n,1} < StartTime | tempTimeData{n,1} > EndTime
                 tempPeakData{n,1}(idx)=[];
                 tempTimeData{n,1}(idx)=[];
@@ -956,15 +956,33 @@ classdef RawData
             obj.TimeCells = tempTimeData;
         end
         
-        function obj = AutoROI(obj)
+        function obj = AutoROI(obj,previewFlag)
             %%AutoROI Performs fully automated ROI search and augmentation.
-            Peaklist = obj.ROICells;
-            Timelist = obj.TimeCells;
-            Intthresh = obj.thresh;
-            minroiSize = obj.minroi;
-            ErrorUnit = obj.mzErrorUnit;
-            Masserror = obj.mzerror;
+            switch previewFlag
+                case true
+                    Peaklist = obj.ROICells(1);
+                    Timelist = obj.TimeCells(1);
+                    Intthresh = obj.thresh;
+                    minroiSize = obj.minroi;
+                    ErrorUnit = obj.mzErrorUnit;
+                    Masserror = obj.mzerror;
 
+                case false
+                    Peaklist = obj.ROICells;
+                    Timelist = obj.TimeCells;
+                    Intthresh = obj.thresh;
+                    minroiSize = obj.minroi;
+                    ErrorUnit = obj.mzErrorUnit;
+                    Masserror = obj.mzerror;
+                otherwise
+                    Peaklist = obj.ROICells;
+                    Timelist = obj.TimeCells;
+                    Intthresh = obj.thresh;
+                    minroiSize = obj.minroi;
+                    ErrorUnit = obj.mzErrorUnit;
+                    Masserror = obj.mzerror;
+            end
+            
             %preallocate cell arrays
             mzlist = cell(length(Peaklist),1);
             MSroilist = cell(length(Peaklist),1);
@@ -989,28 +1007,36 @@ classdef RawData
             end
             MSroi_end=MSroi_end-obj.thresh; %subtract intensity threshold
             MSroi_end=max(MSroi_end,0); %set every negative intensity to 0
-
-            %split and pad matrices
-            MSroi_end = mat2cell(MSroi_end,obj.nScans);
-            time_end = mat2cell(time_end,obj.nScans);
             
-
-            maxScan=max(obj.nScans);
-            ScanNumbers = obj.nScans;
-            parfor id = 1:size(MSroi_end,1)
-                MSroi_end{id}= padarray(MSroi_end{id},maxScan-ScanNumbers(id),0,'post');
-                time_end{id}= padarray(time_end{id},maxScan-ScanNumbers(id),0,'post');
+            if previewFlag==false
+                %split and pad matrices
+                outROI = mat2cell(MSroi_end,obj.nScans);
+                outTime = mat2cell(time_end,obj.nScans);
+                maxScan=max(obj.nScans);
+                ScanNumbers = obj.nScans;
+                parfor id = 1:size(outROI,1)
+                    outROI{id} = padarray(outROI{id},maxScan-ScanNumbers(id),0,'post');
+                    outTime{id} = padarray(outTime{id},maxScan-ScanNumbers(id),0,'post');
+                end
+            else
+                outROI{1} = MSroi_end;
+                outTime{1} = time_end;
             end
-            obj.ROICells = MSroi_end;
-            obj.TimeCells = time_end;
+            obj.ROICells = outROI;
+            obj.TimeCells = outTime;
             obj.ROImzVec = mzroi_end;
         end
         
-        function obj = AlignScans(obj)
+        function obj = AlignScans(obj,previewFlag)
             mzQuan = obj.mzQuantil;
             mzEstim = obj.mzEstimMethod;
             mzCorr = obj.mzCorrectionMethod;
-            PeakCells = obj.ROICells;
+            switch previewFlag
+                case true
+                    PeakCells = obj.ROICells(1);
+                otherwise
+                    PeakCells = obj.ROICells;
+            end
             parfor id = 1:size(PeakCells,1)
                 % perform Spectral Alignment
                 [~, PeakCells{id}]= mspalign(PeakCells{id},'Quantile',mzQuan,'EstimationMethod',mzEstim,'CorrectionMethod',mzCorr,'ShowEstimation',false);
@@ -1018,22 +1044,29 @@ classdef RawData
             obj.ROICells = PeakCells;
         end
         
-        function obj = CorrectBaseline(obj)
+        function obj = CorrectBaseline(obj,previewFlag)
             WSize = obj.WindowSize;
             SSize = obj.StepSize;
             RegMethod = obj.RegressionMethod;
             EstMethod =obj.EstimationMethod;
             SmooMethod = obj.SmoothMethod;
             Quan = obj.QuantilVal;
-            MSroi = obj.ROICells;
-            time=obj.TimeCells;
+            switch previewFlag
+                case true
+                    MSroi = obj.ROICells(1);
+                    time=obj.TimeCells(1);
+                otherwise
+                    MSroi = obj.ROICells;
+                    time=obj.TimeCells;
+            end
+                
             parfor id = 1:size(MSroi,1)
                 oldSize=size(MSroi{id});
                 %depad Array
                 MSroiTemp = MSroi{id};
                 [MSroiTemp,timeTemp] = depadArrays(MSroiTemp,time{id});
                 MSroiTemp = msbackadj(timeTemp,MSroiTemp,'WindowSize',WSize,'StepSize',SSize,'RegressionMethod',RegMethod,'EstimationMethod',EstMethod,'SmoothMethod',SmooMethod,'QuantileValue',Quan,'PreserveHeights',true);
-                %remove negativ, NaN and repad Array
+                %remove negative, NaN and re-pad Array
                 MSroiTemp=max(MSroiTemp,0);
                 MSroiTemp(isnan(MSroiTemp))=0;
                 [MSroi{id},time{id}] = repadArrays(MSroiTemp,timeTemp,oldSize);
@@ -1043,18 +1076,24 @@ classdef RawData
             obj.ROICells = MSroi;
         end
         
-        function obj = SmoothPeaks(obj)
+        function obj = SmoothPeaks(obj,previewFlag)
             Frame = obj.FrameSize;
             Deg = obj.Degree;
-            MSroi = obj.ROICells;
-            time = obj.TimeCells;
+            switch previewFlag
+                case true
+                    MSroi = obj.ROICells(1);
+                    time=obj.TimeCells(1);
+                otherwise
+                    MSroi = obj.ROICells;
+                    time=obj.TimeCells;
+            end
             parfor id = 1:size(MSroi,1)
                 %depad Array
                 oldSize=size(MSroi{id});
                 MSroiTemp = MSroi{id};
                 [MSroiTemp,timeTemp] = depadArrays(MSroiTemp,time{id});
                 MSroiTemp = mssgolay(timeTemp,MSroiTemp,'Span',Frame,'Degree',Deg);
-                %remove negativ, NaN and repad Array
+                %remove negative, NaN and re-pad Array
                 MSroiTemp=max(MSroiTemp,0);
                 MSroiTemp(isnan(MSroiTemp))=0;
                 [MSroi{id},time{id}] = repadArrays(MSroiTemp,timeTemp,oldSize);
@@ -1064,9 +1103,15 @@ classdef RawData
             obj.ROICells = MSroi;
         end
         
-        function obj = AlignPeaks(obj)
-            MSroi = obj.ROICells;
-            time = obj.TimeCells;
+        function obj = AlignPeaks(obj,previewFlag)
+            switch previewFlag
+                case true
+                    MSroi = obj.ROICells(1);
+                    time=obj.TimeCells(1);
+                otherwise
+                    MSroi = obj.ROICells;
+                    time=obj.TimeCells;
+            end
             maxScan = max(obj.nScans);
             % rearrange matrices
             [splitVar,~] = cellfun(@size,time);

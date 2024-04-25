@@ -1,3 +1,6 @@
+1.2.alpha3.1: faster processing of "Preview Parameters"
+        fixed: Plot parameter preview error when parameter preview was cleared by reselecting files, but file preview was not plotted.
+
 1.2.alpha3:  database search results are now saved in the project file.
         fixed: the database file must be reselected each time the database searcher is opened.
                incorrectly calculated identity match factor between spectra when no matching mass peaks are present.
