@@ -10,24 +10,24 @@ sortedData = sortrows(Spectrum, 1);
 groupedMasses = [];
 groupedIntensities = [];
 currentGroup = [];
-currentSum = 0;
+currentSum = [];
 count = 0;
 
 % Iterate through the sorted data
 for i = 1:size(sortedData, 1)
     mz = sortedData(i, 1);
     intensity = sortedData(i, 2);
-    
     % If the current mz is within tolerance of the previous mz, add it to the group
     if isempty(currentGroup) || abs(mz - currentGroup(end)) <= tolerance
         currentGroup = [currentGroup, mz];
-        currentSum = currentSum + intensity;
+        currentSum = [currentSum, intensity];
         count = count + 1;
     else
-        % Take highest mz values in the group
-        averageMass = max(currentGroup,[],"all");
-        
-        % Store the averaged mass and corresponding summed intensity
+        % Take mz with highest intensity in the group
+        [~,idx] = max(currentSum,[],"all");
+        averageMass = currentGroup(idx);
+        currentSum = sum(currentSum);
+        % Store the mass and corresponding summed intensity
         groupedMasses = [groupedMasses; averageMass];
         groupedIntensities = [groupedIntensities; currentSum];
         
@@ -39,9 +39,13 @@ for i = 1:size(sortedData, 1)
 end
 
 % Handle the last group
-averageMass = max(currentGroup,[],"all");
+[~,idx] = max(currentSum,[],"all");
+averageMass = currentGroup(idx);
+currentSum = sum(currentSum);
+% Store the mass and corresponding summed intensity
 groupedMasses = [groupedMasses; averageMass];
 groupedIntensities = [groupedIntensities; currentSum];
-% Display the result
+
+%Combine the result
 result = [groupedMasses, groupedIntensities];
 end

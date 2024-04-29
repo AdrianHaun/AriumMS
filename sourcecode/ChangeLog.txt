@@ -1,3 +1,6 @@
+1.2.alpha3.2: Raw MS file data is no longer stored. This greatly reduces memory consumption, .ams file size, and therefore save and load times of project files.
+        Fixed: Error when plotting TIC, feature and p-value distributions in the evaluation panel.
+
 1.2.alpha3.1: faster processing of "Preview Parameters"
         fixed: Plot parameter preview error when parameter preview was cleared by reselecting files, but file preview was not plotted.
 

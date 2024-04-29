@@ -1,8 +1,13 @@
 function BetweenGroupScores = OuterFeatScores(MSnSpectraCells,mzTol,TolUnit)
 
 CanCompare = sum(~cellfun("isempty",MSnSpectraCells),2)>=2;
+if sum(CanCompare) == 0
+    BetweenGroupScores = cell(size(MSnSpectraCells,1),1);
+    return
+end
 MSnSpectraCells = cellfun(@(x) double(x),MSnSpectraCells,'UniformOutput',false);
 NumCombis = size(nchoosek(1:1:size(MSnSpectraCells,2),2),1);
+
 BetweenGroupScores = cell(size(MSnSpectraCells,1),NumCombis);
 for n = 1:size(MSnSpectraCells,1)
     if CanCompare(n) == false

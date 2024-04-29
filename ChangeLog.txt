@@ -1,3 +1,15 @@
+1.2.alpha3.2: Raw MS file data is no longer stored. This greatly reduces memory consumption, .ams file size, and therefore save and load times of project files.
+        Fixed: Error when plotting TIC, feature and p-value distributions in the evaluation panel.
+
+1.2.alpha3.1: faster processing of "Preview Parameters"
+        fixed: Plot parameter preview error when parameter preview was cleared by reselecting files, but file preview was not plotted.
+
+1.2.alpha3:  database search results are now saved in the project file.
+        fixed: the database file must be reselected each time the database searcher is opened.
+               incorrectly calculated identity match factor between spectra when no matching mass peaks are present.
+               Database search results contain empty tables.
+               Results of the MS2 database search are not sorted by score.
+
 1.2.alpha2:  MS2 data processing is now supported.
         MSn spectra of features within a group are compared to filter duplicate features.
         Features are separated between groups if there are no matching spectra.
@@ -14,7 +26,7 @@
              
 1.2.alpha1:  Added MS1 databank search.
         Added datapoint labels to File preview plots and parameter preview plots.
-        Selecting a cell in the Result table highlights the corresponding feature in volcano, scatter and cloud plots.
+        Selecting a cell in the Result table highlights te corresponding feature in vulcano, scatter and cloud plots.
         
 
 1.1.0:  Background Code restructure.

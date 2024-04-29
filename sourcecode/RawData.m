@@ -230,6 +230,9 @@ classdef RawData
             end
             % ROI Search
             obj = obj.AutoROI(false);
+            
+            %remove PeakData to save Memory
+            obj.PeakDataMS1 = [];
 
             % Average BLK
             if obj.BLKSubtraction == true && nBLK > 1

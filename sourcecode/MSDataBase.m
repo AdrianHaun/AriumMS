@@ -36,11 +36,16 @@ classdef MSDataBase
             %MSDATABASE Construct an instance of this class
             %   Detailed explanation goes here
             obj.Features = CallingApp.FeatureData.IdentifierArray;
-            IsSignificant = horzcat(CallingApp.FeatureData.SignificantFeature{:});
-            IsSignificant = any(IsSignificant <= CallingApp.maxP,2);
-            obj.Significant = IsSignificant;
-            Fold = max(horzcat(CallingApp.FeatureData.FullFoldChanges{:}),[],2);
-            obj.HighFoldChange = Fold >= CallingApp.minFold;
+            if size(CallingApp.FeatureData.GroupName,2) < 2
+                obj.Significant = true(size(CallingApp.FeatureData.AverageIntensities));
+                obj.HighFoldChange = true(size(CallingApp.FeatureData.AverageIntensities));
+            else
+                IsSignificant = horzcat(CallingApp.FeatureData.SignificantFeature{:});
+                IsSignificant = any(IsSignificant <= CallingApp.maxP,2);
+                obj.Significant = IsSignificant;
+                Fold = max(horzcat(CallingApp.FeatureData.FullFoldChanges{:}),[],2);
+                obj.HighFoldChange = Fold >= CallingApp.minFold;
+            end
             obj.FoundInGroup = CallingApp.FeatureData.InGroup;
             obj.IonizationNames = ["EI";"CI";"ESI";"APCI";"APPI"];
             obj.DataBaseFile = CallingApp.dataBaseFile;
@@ -105,7 +110,7 @@ classdef MSDataBase
                 "Text","Ionization Types",...
                 Enable="off",...
                 Tooltip="Only consider database MS2 spectra with matching ionization type.");
-            
+
             obj.EICheckBox = uicheckbox(obj.Window,...
                 "Value",true,...
                 "Position",[90,35,50,20],...
@@ -136,7 +141,7 @@ classdef MSDataBase
                 "Text","APPI",...
                 Enable="off",...
                 Tooltip="Includes APPI spectra in Database search results.");
-            
+
             %add function callbacks
             obj.FilterIonizationTypeCheckbox.ValueChangedFcn = @(src,event) {IonTypeFilterSwitch(obj,src,event)};
             drawnow
@@ -151,7 +156,7 @@ classdef MSDataBase
         end
 
         function obj = IonTypeFilterSwitch(obj,~,event)
-            
+
             if event.Value == true
                 %enable sub checkboxes
                 obj.EICheckBox.Enable = "on";
@@ -369,59 +374,59 @@ classdef MSDataBase
 
             MetaboliteList = doc.getElementsByTagName('metabolite');
             numMetabolites = MetaboliteList.getLength;
-            
+
 
             %% create file and add first entry
-                n=0;
-                x = n+1;
-                d = uiprogressdlg(obj.Window,'Title','Building Database',...
+            n=0;
+            x = n+1;
+            d = uiprogressdlg(obj.Window,'Title','Building Database',...
                 'Message',"Metabolite " + x + " of " +numMetabolites);
-                d.Value = 0;
-                Metabolite = MetaboliteList.item(n);
-                %HMDB identifier
-                Accession = Metabolite.getElementsByTagName('accession');
-                Accession = string(Accession.item(0).getTextContent);
+            d.Value = 0;
+            Metabolite = MetaboliteList.item(n);
+            %HMDB identifier
+            Accession = Metabolite.getElementsByTagName('accession');
+            Accession = string(Accession.item(0).getTextContent);
 
-                %Compound Name
-                Name = Metabolite.getElementsByTagName('name');
-                Name = string(Name.item(0).getTextContent);
+            %Compound Name
+            Name = Metabolite.getElementsByTagName('name');
+            Name = string(Name.item(0).getTextContent);
 
-                %Compound Mass
-                ExactMass = Metabolite.getElementsByTagName('monisotopic_molecular_weight');
-                ExactMass = str2double(ExactMass.item(0).getTextContent);
+            %Compound Mass
+            ExactMass = Metabolite.getElementsByTagName('monisotopic_molecular_weight');
+            ExactMass = str2double(ExactMass.item(0).getTextContent);
 
-                %Compound Formula
-                propertyList = Metabolite.getElementsByTagName('property');
-                found = false;
-                P = 0;
-                Formula = strings(1);
-                while found == false & P <= propertyList.getLength-1
-                    property = propertyList.item(P);
-                    type = property.getElementsByTagName('kind');
-                    type = string(type.item(0).getTextContent);
-                    if strcmp(type,"formula")
-                        prop = property.getElementsByTagName('value');
-                        Formula = string(prop.item(0).getTextContent);
-                        found = true;
-                    end
-                    P = P+1;
+            %Compound Formula
+            propertyList = Metabolite.getElementsByTagName('property');
+            found = false;
+            P = 0;
+            Formula = strings(1);
+            while found == false & P <= propertyList.getLength-1
+                property = propertyList.item(P);
+                type = property.getElementsByTagName('kind');
+                type = string(type.item(0).getTextContent);
+                if strcmp(type,"formula")
+                    prop = property.getElementsByTagName('value');
+                    Formula = string(prop.item(0).getTextContent);
+                    found = true;
                 end
-                % identify correct spectra files
-                fstruct = dir(path + "\"+Accession+"*");
-                numSpectra = numel(fstruct);
-                %load spectra files
-                if numSpectra > 0
-                    parfor S = 1:numSpectra
+                P = P+1;
+            end
+            % identify correct spectra files
+            fstruct = dir(path + "\"+Accession+"*");
+            numSpectra = numel(fstruct);
+            %load spectra files
+            if numSpectra > 0
+                parfor S = 1:numSpectra
 
-                        SpectraFile = fullfile(path, fstruct(S).name);
-                        [instrumenttype,ionization_mode,collisionenergy,encodedSpectrum] = readHMDBSpectraFile(SpectraFile);
-                        entry = struct('ACCESSION', Accession, 'NAME', Name, ...
-                            'FORMULA', Formula, 'EXACT_MASS', ExactMass, ...
-                            'INSTRUMENT_TYPE', instrumenttype, 'IONIZATION', ionization_mode, ...
-                            'FRAGMENTATION_ENERGY', collisionenergy, 'SPECTRUM', encodedSpectrum);
-                        database = [database, entry];
-                    end
+                    SpectraFile = fullfile(path, fstruct(S).name);
+                    [instrumenttype,ionization_mode,collisionenergy,encodedSpectrum] = readHMDBSpectraFile(SpectraFile);
+                    entry = struct('ACCESSION', Accession, 'NAME', Name, ...
+                        'FORMULA', Formula, 'EXACT_MASS', ExactMass, ...
+                        'INSTRUMENT_TYPE', instrumenttype, 'IONIZATION', ionization_mode, ...
+                        'FRAGMENTATION_ENERGY', collisionenergy, 'SPECTRUM', encodedSpectrum);
+                    database = [database, entry];
                 end
+            end
             database=struct2table(database);
             DataBaseConnection = sqlite(obj.DataBaseFile,"create");
             sqlwrite(DataBaseConnection,"SpectralData",database);
@@ -474,11 +479,11 @@ classdef MSDataBase
                             'FRAGMENTATION_ENERGY', collisionenergy, 'SPECTRUM', string(encodedSpectrum));
                         database = [database, entry];
                     end
-                database=struct2table(database);
-                sqlwrite(DataBaseConnection,"SpectralData",database);
-                database = [];
-                d.Value = (n+1)/numMetabolites;
-                drawnow
+                    database=struct2table(database);
+                    sqlwrite(DataBaseConnection,"SpectralData",database);
+                    database = [];
+                    d.Value = (n+1)/numMetabolites;
+                    drawnow
                 end
             end
 
