@@ -11,5 +11,5 @@ For MS Data conversion to .mzXML or .mzML file format use msconvert, distributed
 
 MATLAB R2024a or newer
 
-Required Toolboxes: 
-Bioinformatic Toolbox, Statistics And Machine Learning Toolbox, Wavelet Toolbox, Image Processing Toolbox, Signal Processing Toolbox, Parallel Computing Toolbox
+Required toolboxes for the app version: 
+Bioinformatic Toolbox, Statistics And Machine Learning Toolbox, Wavelet Toolbox, Image Processing Toolbox, Signal Processing Toolbox, Parallel Computing Toolbox, Database Toolbox

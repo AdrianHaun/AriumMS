@@ -1,3 +1,5 @@
+1.2.alpha3.3: Added the Database Toolbox to the list of required toolboxes for the App version, thus avoiding bugs related to missing functions for the Database Searcher.
+
 1.2.alpha3.2: Raw MS file data is no longer stored. This greatly reduces memory consumption, .ams file size, and therefore save and load times of project files.
         Fixed: Error when plotting TIC, feature and p-value distributions in the evaluation panel.
 
