@@ -22,7 +22,7 @@ classdef RawData
         RTTol (1,1) double {mustBeFinite} = 5
         mzTol (1,1) double {mustBeFinite} = 0.001
         mzTolUnit (1,1) string {mustBeMember(mzTolUnit,["Da","ppm"])} = "Da"
-        % ROIparameter
+        % ROI parameter
         thresh (1,1) double {mustBeInteger,mustBePositive} = 5000
         mzerror (1,1) double {mustBePositive} = 0.01
         mzErrorUnit (1,1) string {mustBeMember(mzErrorUnit,["Da","ppm"])} = "Da"
@@ -870,7 +870,6 @@ classdef RawData
             FeatId = cell(size(mzVector));
             XIC =  cell(size(mzVector));
             RTStorage = cell(size(mzVector));
-            BorderStorage = cell(size(mzVector));
             Entropy_Storage = cell(size(mzVector));
             SNStorage = cell(size(mzVector));
 
@@ -882,7 +881,7 @@ classdef RawData
                 Entropy = IntegrationResults{4,n}(:,1);
                 SN = IntegrationResults{4,n}(:,2);
                 SampleIndex = RTAssign{n}(:,2);
-                XICvec = {[IntegrationResults{5,n},obj.timeVec]};
+                XICvec = [IntegrationResults{5,n},obj.timeVec];
                 %find unique Retention Times
                 [UniqueTimes,IndexToUnique]=uniquetol(Times,TimeTolerance,'DataScale',1,'OutputAllIndices',true);
 
@@ -895,7 +894,6 @@ classdef RawData
                 EntropyMat = zeros(length(UniqueTimes),nFiles);
                 SNMat = zeros(length(UniqueTimes),nFiles);
                 mzValue = repmat(mzVector(n),length(UniqueTimes),1);
-                XICrep = repmat(XICvec,length(UniqueTimes),1);
                 % uniqueRT loop
                 for numRTs = 1:length(UniqueTimes)
                     AvgTimeVec(numRTs) = mean(Times(IndexToUnique{numRTs}));
@@ -908,12 +906,11 @@ classdef RawData
                 end
                 IntStorage{n} = IntMat;
                 FeatId{n} = [mzValue,AvgTimeVec];
-                XIC{n} = XICrep;
                 RTStorage{n} = TimesMat;
                 BordersMat = cat(3,LowerBordersMat,UpperBordersMat);
                 BordersMat=mat2cell(BordersMat,ones(1,numel(UniqueTimes)),ones(1,nFiles),2);
                 BordersMat = cellfun(@(x) squeeze(x), BordersMat, 'UniformOutput', false);
-                BorderStorage{n} = BordersMat;
+                XIC{n} = ExtractXIC(XICvec,BordersMat);
                 Entropy_Storage{n} = EntropyMat;
                 SNStorage{n} = SNMat;
             end
@@ -922,20 +919,37 @@ classdef RawData
             Output.XIC = vertcat(XIC{:});
             Output.IntensityStorage = vertcat(IntStorage{:});
             Output.RetentionTimeStorage = vertcat(RTStorage{:});
-            Output.PeakBorderStorage = vertcat(BorderStorage{:});
             Output.EntropyStorage = vertcat(Entropy_Storage{:});
             Output.Signal2NoiseStorage = vertcat(SNStorage{:});
-
             %occurenceFilter
             idx = sum(Output.IntensityStorage ~= 0,2)<minDataPoints;
             Output.IntensityStorage(idx,:) = [];
             Output.FeatIdentifiers(idx,:) = [];
             Output.XIC(idx,:) = [];
             Output.RetentionTimeStorage(idx,:) = [];
-            Output.PeakBorderStorage(idx,:) = [];
             Output.EntropyStorage(idx,:) = [];
             Output.Signal2NoiseStorage(idx,:) = [];
             obj.OccurenceFiltered = Removed + sum(idx);
+
+            %% local function
+            function peakXIC = ExtractXIC(xic,peakBorder) 
+                %reshape input to column vector 
+                [originalnRows,originalnCols] = size(peakBorder);
+                peakBorder = reshape(peakBorder,[],1);
+                %preallocation 
+                peakXIC = cell(size(peakBorder));
+                for numPeak = 1:size(peakXIC,1)
+                    lowerBorder = peakBorder{numPeak,1}(1,1);
+                    upperBorder = peakBorder{numPeak,1}(2,1);
+                    if lowerBorder == 0 || upperBorder == 0 %case for empty peak
+                        peakXIC{numPeak,1} = [];
+                    else
+                        peakXIC{numPeak,1} = xic(lowerBorder:upperBorder,:);
+                    end
+                end
+                %reshape to original form
+                peakXIC = reshape(peakXIC,originalnRows,originalnCols);
+            end
         end
         
         function Output = GroupAndSampleScaling(obj,Output)

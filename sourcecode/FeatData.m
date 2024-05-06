@@ -16,7 +16,6 @@ classdef FeatData
         XIC                         (:,:) cell
         NameStringArray             (:,1) string
         RetentionTimeArray          (:,:) double
-        PeakBorderArray             (:,:) cell
         EntropyArray                (:,:) double
         Signal2NoiseArray           (:,:) double
         NumberOfFilesArray          (1,:) double
@@ -53,7 +52,6 @@ classdef FeatData
 
             obj.FullUnscaledIntensityArray = FullOutput.IntensityStorage(ia,:);
             obj.RetentionTimeArray = FullOutput.RetentionTimeStorage(ia,:);
-            obj.PeakBorderArray = FullOutput.PeakBorderStorage(ia,:);
             obj.NumberOfFilesArray = FullOutput.SampleNumbers;
             obj.EntropyArray = FullOutput.EntropyStorage(ia,:);
             obj.Signal2NoiseArray = FullOutput.Signal2NoiseStorage(ia,:);
@@ -360,6 +358,7 @@ classdef FeatData
             InnerScores = cellfun(@InnerFeatScores,obj.MSnSpectra,'UniformOutput',false);
             % merge spectra with score >=850
             obj.FilteredMSnSpectra = cellfun(@FilterSameSpectra,obj.MSnSpectra,InnerScores,'UniformOutput',false);
+
         end
 
 
@@ -441,7 +440,6 @@ classdef FeatData
             obj.XIC(RemoveRow,:)=[];
             obj.NameStringArray(RemoveRow,:)=[];
             obj.RetentionTimeArray(RemoveRow,:)=[];
-            obj.PeakBorderArray(RemoveRow,:)=[];
             obj.EntropyArray(RemoveRow,:)=[];
             obj.Signal2NoiseArray(RemoveRow,:)=[];
             obj.OccurenceCount(RemoveRow,:)=[];
@@ -615,18 +613,6 @@ classdef FeatData
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
                     obj.XIC = Subgroups;
-
-                    %PeakBorderArray
-                    Subgroups = obj.PeakBorderArray;
-                    Data = Subgroups(n,2:end);
-                    Subgroups(n,2:end) = {[]};
-                    %expand Cell array
-                    Subgroups(end+1,size(Subgroups,2)) = {[]};
-                    for Deal = 1:size(Spectra,2)
-                        %deal remaining
-                        Subgroups(end,Deal+1) = Data(1,Deal);
-                    end
-                    obj.PeakBorderArray = Subgroups;
 
                     %IdentifierArray
                     obj.IdentifierArray(end+1,:) = obj.IdentifierArray(n,:);
