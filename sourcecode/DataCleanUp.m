@@ -1,6 +1,5 @@
 function [Peaklist,Timelist] =DataCleanUp(Peaklist,Timelist)
-%Remove m/z with Intensity < 100 counts
-%   Removes all m/z values with intensity below thresh.
+%Removes noise m/z by binning, and removing the first bin
 
 %% Clean Data
 parfor k = 1 : size(Peaklist,1)
@@ -12,7 +11,8 @@ parfor k = 1 : size(Peaklist,1)
     else
         for j = 1:nrows
             data = Peak{j,1};
-            idx = data(:,2)< 100;
+            [~,edges] = histcounts(data(:,2));
+            idx = data(:,2)<= edges(2);
             data(idx,:)=[];
             Peak{j,1}=data;
         end

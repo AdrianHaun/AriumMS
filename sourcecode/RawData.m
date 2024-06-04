@@ -194,30 +194,38 @@ classdef RawData
                         [Peaks{n,1},times{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
                 end
             end
-            % compress peaklist by removing masses with intensity < 100;
-            [Peaks,times] = DataCleanUp(Peaks,times);
             % store data
             if Level == 1
+                % compress peaklist by removing masses with intensity < 100;
+                [Peaks,times] = DataCleanUp(Peaks,times);
                 obj.TimeDataMS1 = times;
                 obj.PeakDataMS1 = Peaks;
             else
-                obj.PeakDataMSn = Peaks;
-                obj.TimeDataMSn = times;
-                obj.Precursor = PrecursorMass;
-                obj.CollisionEnergy = CollisionForce;
-                obj.CollisionType = FragMethod;
+                %remove cells with no MSn data
+                idx = cellfun(@isempty,Peaks);
+                obj.PeakDataMSn = Peaks(~idx,:);
+                obj.TimeDataMSn = times(~idx,:);
+                obj.Precursor = PrecursorMass(~idx,:);
+                obj.CollisionEnergy = CollisionForce(~idx,:);
+                obj.CollisionType = FragMethod(~idx,:);
+                obj = MS2CleanUp(obj);
             end
         end
 
         %% Data Processing
         function [obj,Output]=BatchProcess(obj)
             nFiles = size(obj.Files,1);
-            nBLK = size(obj.BlankFiles,1);
-            nData = nFiles+nBLK;
-            FileLocs=[obj.Files;obj.BlankFiles];
+            FileLocs = obj.Files;
+            nData = nFiles;
+            if obj.BLKSubtraction == true
+                nBLK = size(obj.BlankFiles,1);
+                nData = nFiles+nBLK;
+                FileLocs=[FileLocs;obj.BlankFiles];
+            end
             %remove possible empty
             id=cellfun(@isempty,FileLocs);
             FileLocs(id)=[];
+            nData = nData-sum(id);
             %check if files already loaded then skip loading stage
             if isempty(obj.PeakDataMS1) == true || size([obj.Files;obj.BlankFiles],1) ~= size(obj.PeakDataMS1,1)
                 obj = ReadData(obj,FileLocs,1);
@@ -1195,45 +1203,36 @@ classdef RawData
 
         function obj = MS2CleanUp(obj)
             %normalize m/z intensities then remove m/z with Intensity < 5%
-            % Removes all m/z values with intensity below 100.
-            % Remove all Spectra with only one mass peak
             %% Clean Data
             PeakData = obj.PeakDataMSn;
             TimeData = obj.TimeDataMSn;
             PrecursorData = obj.Precursor;
             ColType = obj.CollisionType;
             ColEnergy = obj.CollisionEnergy;
-            parfor k = 1 : size(PeakData,1)
+            for k = 1 : size(PeakData,1)
                 Peak = PeakData{k,1};
                 [nrows,~] = size(Peak);
                 if nrows == 1
                     PeakData{k,1}=Peak;
                 else
-                    isBadSpectrum = false(size(Peak));
-                    for j = 1:nrows
+                    parfor j = 1:nrows
                         data=Peak{j,1};
-                        %downsample Peak
+                        %down-sample Peak
                         data = ResampleMS2Spectra(data);
-                        idx=data(:,2) < 100;
-                        data(idx,:)=[];
-                        % remove rel intensities < 1%
-                        normData = data(:,2)./max(data(:,2));
-                        idx=normData < 0.001;
-                        data(idx,:)=[];
-                        if ~isempty(data)
-                            isBadSpectrum(j)=max(data(:,1))-min(data(:,1))<1;
-                            Peak{j,1}=data;
-                        else
-                            isBadSpectrum(j) = true;
-                            Peak{j,1}=data;
-                        end
+                        %filter low intensity signals
+                        data(:,2) = data(:,2)./max(data(:,2));
+                        [~,edges] = histcounts(data(:,2));
+                        id = data(:,2) <= edges(2) |  data(:,2)< 0.05;
+                        data(id,:) = [];
+                        Peak{j,1}=data;
                     end
-                    Peak(isBadSpectrum)=[];
-                    TimeData{k}(isBadSpectrum)=[];
-                    PrecursorData{k}(isBadSpectrum,:)=[];
-                    ColType{k}(isBadSpectrum,:)=[];
-                    ColEnergy{k}(isBadSpectrum,:)=[];
+                    idx = cellfun(@isempty,Peak);
+                    Peak(idx,:) = [];
                     PeakData{k,1}=Peak;
+                    TimeData{k,1}(idx,:) = [];
+                    PrecursorData{k,1}(idx,:) = [];
+                    ColType{k,1}(idx,:) = [];
+                    ColEnergy{k,1}(idx,:) = [];
                 end
             end
             obj.PeakDataMSn = PeakData;

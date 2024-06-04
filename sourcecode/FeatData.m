@@ -299,15 +299,15 @@ classdef FeatData
             Storage = reshape(Storage,[],1);
             PeakData = cell(size(RawDataArray));
             TimeData = cell(size(RawDataArray));
-            FragType = cell(size(RawDataArray));
-            FragEnergy = cell(size(RawDataArray));
             Precursor = cell(size(RawDataArray));
+            % FragType = cell(size(RawDataArray));
+            % FragEnergy = cell(size(RawDataArray));
             %gather MS2Data
-            for n=1:size(RawDataArray,2)
+            parfor n=1:size(RawDataArray,2)
                 PeakData{n} = vertcat(RawDataArray(n).PeakDataMSn{:});
                 TimeData{n} = vertcat(RawDataArray(n).TimeDataMSn{:});
-                FragType{n} = vertcat(RawDataArray(n).CollisionType{:});
-                FragEnergy{n} = vertcat(RawDataArray(n).CollisionEnergy{:});
+                % FragType{n} = vertcat(RawDataArray(n).CollisionType{:});
+                % FragEnergy{n} = vertcat(RawDataArray(n).CollisionEnergy{:});
                 %convert pseudo-molecular ion precursor to molecular
                 %precursor
                 switch RawDataArray(n).MSPolarity
@@ -462,8 +462,8 @@ classdef FeatData
             obj = obj.ScoresWithinGroups;
             MeasuredSpectra = obj.FilteredMSnSpectra;
             GroupScores =  OuterFeatScores(MeasuredSpectra,mzTol,mzTolUnit);
-            hasMatch = false(size(GroupScores));
-            for n = 1:size(hasMatch,1)
+            hasMatch = false(size(GroupScores,1),1);
+            parfor n = 1:size(hasMatch,1)
                 if isempty(GroupScores{n})
                     continue
                 else
@@ -477,33 +477,39 @@ classdef FeatData
                 if hasMatch(n) == true
                     %keep matching spectra
                     Spectra = MeasuredSpectra(n,:);
-                    ScoresAndID = GroupScores{n,1};
-
-                    rowID = ScoresAndID(:,1)>=750;
-                    SpecID = ScoresAndID(rowID,2:end);
-                    SpecID = SpecID+1; %because first column are mz values
-
+                    ScoresAndID = GroupScores(n,:);
+                    for Group = 1:size(ScoresAndID,2)
+                    rowID = ScoresAndID{1,Group}(:,1)>=750;
+                    SpecID = ScoresAndID{1,Group}(rowID,2);
+                    SpecID = SpecID+1; %because first row are m/z values
                     Storage = cell(size(Spectra,2),1);
-
-                    for Group = 1:size(Spectra,2)
                         if ~isempty(Spectra{1,Group})
-                            Storage{Group,1} = Spectra{1,Group}(:,[1,SpecID(:,Group)']);
+                            Storage{Group,1} = Spectra{1,Group}(:,[1,unique(SpecID(:,1)')]);
                         end
                     end
-                    FullMerge{n,1} = mergeMatricesWithTolerance(Storage,mergeMZtol,"Da");
-
-
+                    %remove empty
+                    id = cellfun(@isempty,Storage);
+                    Storage(id) = [];
+                    if size(Storage,1) > 1
+                        FullMerge{n,1} = mergeMatricesWithTolerance(Storage,mergeMZtol,"Da");
+                    elseif size(Storage,1) == 1
+                        FullMerge(n,1) = Storage;
+                    end
+                    
                     continue
+
                 elseif hasMatch(n) == false & ~isempty(GroupScores{n,1})
                     %% no matching spectra split features
                     % spectra
-                    Spectra = MeasuredSpectra(n,2:end);
-                    MeasuredSpectra(n,2:end) = {[]};
+                    Spectra = MeasuredSpectra(n,:);
+                    id = cellfun(@isempty,Spectra);
+                    Spectra(id) = [];
+                    FullMerge(n,1) = Spectra(1);
+                    Spectra(1) = [];
                     %expand Cell array
-                    MeasuredSpectra(end+1,size(MeasuredSpectra,2)) = {[]};
                     for Deal = 1:size(Spectra,2)
                         %deal remaining
-                        MeasuredSpectra(end,Deal+1) = Spectra(1,Deal);
+                        FullMerge(end+1,1) = Spectra(1,Deal);
                     end
 
                     %% update remaining FeatData
@@ -514,13 +520,11 @@ classdef FeatData
                     Subgroups = obj.FullUnscaledIntensityArray;
                     Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                    Vec = zeros(1,sum(obj.NumberOfFilesArray(2:end)));
-                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray(2:end));
-                    Subgroups(n,2:end) = Vec;
-
+                    Vec = zeros(1,sum(obj.NumberOfFilesArray));
+                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
-                    Subgroups(end+1,:) = ZeroVec;
                     for Deal = 1:size(Spectra,2)
+                        Subgroups(end+1,:) = Vec;
                         %deal remaining
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
@@ -530,12 +534,11 @@ classdef FeatData
                     Subgroups = obj.CleanFullIntensityArray;
                     Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                    Vec = zeros(1,sum(obj.NumberOfFilesArray(2:end)));
-                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray(2:end));
-                    Subgroups(n,2:end) = Vec;
+                    Vec = zeros(1,sum(obj.NumberOfFilesArray));
+                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
-                    Subgroups(end+1,:) = ZeroVec;
                     for Deal = 1:size(Spectra,2)
+                        Subgroups(end+1,:) = Vec;
                         %deal remaining
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
@@ -545,12 +548,11 @@ classdef FeatData
                     Subgroups = obj.IntensityArray;
                     Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                    Vec = zeros(1,sum(obj.NumberOfFilesArray(2:end)));
-                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray(2:end));
-                    Subgroups(n,2:end) = Vec;
+                    Vec = zeros(1,sum(obj.NumberOfFilesArray));
+                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
-                    Subgroups(end+1,:) = ZeroVec;
                     for Deal = 1:size(Spectra,2)
+                        Subgroups(end+1,:) = Vec;
                         %deal remaining
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
@@ -560,12 +562,11 @@ classdef FeatData
                     Subgroups = obj.EntropyArray;
                     Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                    Vec = zeros(1,sum(obj.NumberOfFilesArray(2:end)));
-                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray(2:end));
-                    Subgroups(n,2:end) = Vec;
+                    Vec = zeros(1,sum(obj.NumberOfFilesArray));
+                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
-                    Subgroups(end+1,:) = ZeroVec;
                     for Deal = 1:size(Spectra,2)
+                        Subgroups(end+1,:) = Vec;
                         %deal remaining
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
@@ -575,12 +576,11 @@ classdef FeatData
                     Subgroups = obj.RetentionTimeArray;
                     Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                    Vec = zeros(1,sum(obj.NumberOfFilesArray(2:end)));
-                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray(2:end));
-                    Subgroups(n,2:end) = Vec;
+                   Vec = zeros(1,sum(obj.NumberOfFilesArray));
+                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
-                    Subgroups(end+1,:) = ZeroVec;
                     for Deal = 1:size(Spectra,2)
+                        Subgroups(end+1,:) = Vec;
                         %deal remaining
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
@@ -590,12 +590,11 @@ classdef FeatData
                     Subgroups = obj.Signal2NoiseArray;
                     Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                    Vec = zeros(1,sum(obj.NumberOfFilesArray(2:end)));
-                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray(2:end));
-                    Subgroups(n,2:end) = Vec;
+                    Vec = zeros(1,sum(obj.NumberOfFilesArray));
+                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
-                    Subgroups(end+1,:) = ZeroVec;
                     for Deal = 1:size(Spectra,2)
+                        Subgroups(end+1,:) = Vec;
                         %deal remaining
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
@@ -604,28 +603,40 @@ classdef FeatData
                     %cells
                     %XIC
                     Subgroups = obj.XIC;
+                    Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                    Subgroups(n,2:end) = {[]};
+                    Vec = cell(1,sum(obj.NumberOfFilesArray));
+                    Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
-                    Subgroups(end+1,size(Subgroups,2)) = {[]};
                     for Deal = 1:size(Spectra,2)
+                        Subgroups(end+1,:) = Vec;
                         %deal remaining
                         Subgroups(end,Deal+1) = Data(1,Deal);
                     end
-                    obj.XIC = Subgroups;
+                    Subgroups = [Subgroups{:}];
+                    obj.XIC = reshape(Subgroups,[],sum(obj.NumberOfFilesArray));
 
                     %IdentifierArray
-                    obj.IdentifierArray(end+1,:) = obj.IdentifierArray(n,:);
+                    for Deal = 1:size(Spectra,2)
+                        obj.IdentifierArray(end+1,:) = obj.IdentifierArray(n,:);
+                    end
 
                     %OriginalGroup
                     OGroup = obj.OriginalGroup(n,:);
                     %expand Cell array
-                    obj.OriginalGroup(end+1,size(obj.OriginalGroup,2)) = string;
-                    for Deal = 1:size(OGroup,2)
+                    for Deal = 1:size(Spectra,2)
+                        obj.OriginalGroup(end+1,size(obj.OriginalGroup,2)) = string;
                         %deal remaining
                         obj.OriginalGroup(end,Deal) = OGroup(1,Deal);
                     end
-
+               
+                else % store single group spectra
+                    Spectra = MeasuredSpectra(n,:);
+                    id = cellfun(@isempty,Spectra);
+                    Spectra(id) = [];
+                    if ~isempty(Spectra)
+                        FullMerge(n,1) = Spectra;
+                    end
                 end
             end
 
@@ -646,11 +657,7 @@ classdef FeatData
             obj.NameStringArray = obj.IdentifierArray(:,1) + "@" + obj.IdentifierArray(:,2) + "s,"+ obj.InGroup;
 
             %store final Feature Spectra
-            Storage = cell(size(MeasuredSpectra,1),1);
-            parfor n = 1:size(MeasuredSpectra,1)
-                Storage{n,1} = mergeMatricesWithTolerance(MeasuredSpectra(n,:),mergeMZtol,"Da");
-            end
-        	obj.FeatureMSnSpectra = Storage;
+            obj.FeatureMSnSpectra = FullMerge;
         end
     end
 end

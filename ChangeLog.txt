@@ -1,3 +1,5 @@
+1.2.alpha3.5: Fixed multiple errors when evaluating MS2 information for more than two groups.
+
 1.2.alpha3.4: Change the way feature peak information is stored. This reduces memory requirements and the size of .ams project files. The change causes an error when plotting integration results with older projects. To fix this, reprocess the files.
 
 1.2.alpha3.3: Added the Database Toolbox to the list of required toolboxes for the App version, thus avoiding bugs related to missing functions for the Database Searcher.
