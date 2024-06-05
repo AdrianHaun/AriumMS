@@ -122,7 +122,7 @@ classdef RawData
             %Construct an instance of this class
             obj.GroupName = "Group " + GroupCounter;
         end
-        
+
         function [obj,polarity] = DataCheck(obj)
             % Check Data, number of Scans, Start/End Times
             %Check minimum number of scans
@@ -194,6 +194,8 @@ classdef RawData
                         [Peaks{n,1},times{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
                 end
             end
+            % compress peaklist by removing masses with intensity < 100;
+            [Peaks,times] = DataCleanUp(Peaks,times);
             % store data
             if Level == 1
                 % compress peaklist by removing masses with intensity < 100;
@@ -237,8 +239,8 @@ classdef RawData
                 obj = obj.AlignScans(false);
             end
             % ROI Search
-            obj = obj.AutoROI(false);
-            
+            obj = obj.AutoROI("batch");
+
             %remove PeakData to save Memory
             obj.PeakDataMS1 = [];
 
@@ -253,16 +255,16 @@ classdef RawData
 
             % Baseline Correction
             if obj.BaseCorr == true
-                obj = obj.CorrectBaseline(false);
+                obj = obj.CorrectBaseline("batch");
             end
             % Smoothing
             if obj.Smoothing == true
-                obj = obj.SmoothPeaks(false);
+                obj = obj.SmoothPeaks("batch");
             end
 
             % Peak Align
             if obj.Peakalign == true && nData > 1
-                obj = obj.AlignPeaks(false);
+                obj = obj.AlignPeaks("batch");
             end
 
             if obj.BLKSubtraction == true % Separate Blank data from Sample data
@@ -282,7 +284,7 @@ classdef RawData
             % pad arrays with Maximum peak width*3 Scans to eliminate
             % integration interference between matrices
             obj = obj.FinalizeROI;
-            
+
             clearvars -except obj
             %% Integration Stage
             % Find and Integrate IS separate
@@ -360,6 +362,85 @@ classdef RawData
             Output = obj.GroupAndSampleScaling(Output);
             Output.DataSize = size(Output.IntensityStorage,1);
             Output.FoundInGroup = repmat(obj.GroupName,size(Output.FeatIdentifiers,1),1);
+            Output.SampleNames = obj.FileNames;
+        end
+
+        function [Output]=bayesOptimizationProcess(obj,bayesOptions,optimizeFlag)
+
+            obj.nScans = cellfun(@numel,obj.TimeCells);
+
+            % ROI Search
+            if optimizeFlag(1) == true
+                obj = obj.AutoROI("bayes",bayesOptions);
+            else
+                obj = obj.AutoROI("batch");
+            end
+
+            if optimizeFlag(6) == true && bayesOptions.contaminantFilter == true || obj.ContaminantFilter == true
+                obj = obj.removeContaminants;
+            end
+
+            % Baseline Correction
+            if optimizeFlag(4) == true
+                obj = obj.CorrectBaseline("bayes",bayesOptions);
+            elseif obj.BaseCorr == true
+                obj = obj.CorrectBaseline("batch");
+            end
+            % Smoothing
+            if optimizeFlag(5) == true
+                obj = obj.SmoothPeaks("bayes",bayesOptions);
+            elseif obj.Smoothing == true
+                obj = obj.SmoothPeaks("batch");
+            end
+
+            % Peak Align
+            if optimizeFlag(3) == true
+                obj = obj.AlignPeaks("bayes",bayesOptions);
+            elseif obj.Peakalign == true && nData > 1
+                obj = obj.AlignPeaks("batch");
+            end
+            % pad arrays with Maximum peak width*3 Scans to eliminate
+            % integration interference between matrices
+            obj = obj.FinalizeROI;
+
+            clearvars -except obj bayesOptions optimizeFlag
+            %% Integration Stage
+
+            % Integrate all Peaks
+            IDX = true(1,size(obj.ROIMat,2));
+            if optimizeFlag(2) == true
+                IntegrationData = obj.CWTIntegrate(IDX,bayesOptions);
+            else
+                IntegrationData = obj.CWTIntegrate(IDX);
+            end
+            IntegrationData(5:7,:) = [];
+            % remove ROI masses with no found peaks
+            empt=cellfun(@isempty,IntegrationData(4,:));
+            IntegrationData(:,empt)=[];
+            obj.ROImzVec(empt)=[];
+            obj.ROIMat(:,empt)=[];
+            % calculate median entropy
+            mEntropy=vertcat(IntegrationData{4,:});
+            mEntropy(:,2)=[];
+            obj.MedianEntropy=median(mEntropy,'omitnan');
+            % Apply Entropy filter
+            if optimizeFlag(2) == true && bayesOptions.entropyFilter == true || obj.EntropyFilter == true
+                [IntegrationData,obj.EntropyFiltered,EmptyColumns] = obj.FilterbyEntropy(IntegrationData,obj.MedianEntropy);
+                obj.ROIMat(:,EmptyColumns)=[];
+                obj.ROImzVec(EmptyColumns)=[];
+            end
+            IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
+
+            % remove isotopes and adducts
+            if optimizeFlag(7) == true && bayesOptions.contaminantFilter == true || obj.IsotopeFilter == true
+                [IntegrationData,obj] = obj.FilterIsotopes(IntegrationData);
+            end
+
+            % Build Storage Arrays and filter by number of occurences
+            [obj,Output] = obj.BuildStorageArrays(IntegrationData);
+
+            Output.FeatIdentifiers(:,2) = round(Output.FeatIdentifiers(:,2),1);
+            Output.DataSize = size(Output.IntensityStorage,1);
             Output.SampleNames = obj.FileNames;
         end
 
@@ -517,16 +598,26 @@ classdef RawData
                 uialert(fig,message,header,'Icon','warning');
             end
         end
-        function IntResults = CWTIntegrate(obj,Index)
+        function IntResults = CWTIntegrate(obj,Index,varargin)
             Mat = obj.ROIMat(:,Index);
-            maxSN = obj.minSignalNoise;
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+                maxSN = bayesOptions.minSN;
+                minSec = bayesOptions.minPeakWidth;
+                maxSec = bayesOptions.maxPeakWidth;
+            else
+
+                maxSN = obj.minSignalNoise;
+                minSec = obj.minWidth;
+                maxSec = obj.maxWidth;
+            end
+
             % prepare wavelet filter-bank
             MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
             MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
             times = obj.timeVec;
             ScanFreq = obj.ScanFrequency;
-            minSec = obj.minWidth;
-            maxSec = obj.maxWidth;
+
             % calculate EIC derivatives and store as sparse
             smoothed = smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1);
             Noise = std(Mat-smoothed);
@@ -637,7 +728,7 @@ classdef RawData
             obj.ROImzVec = obj.ROImzVec-CorrectionVector;
         end
 
-        function [valuesFiltered,obj] = FilterAdducts(obj,IntegrationResults)
+        function [valuesFiltered,obj] = FilterAdducts(obj,IntegrationResults,varargin)
             %% AdductFilterAlgo Filters Adduct Peaks from Internal AriumMS integration results
             %   Calculates possible non Adduct (Base) m/z for each
             %   extracted m/z, then finds matching masses in original list.
@@ -645,6 +736,12 @@ classdef RawData
             %   peaks with the same RT (within 2 sec). Matching peaks
             %   shapes are compared using Cosine Similarity (>=0.85
             %   default)
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+                mzTolVal = bayesOptions.mzTol;
+            else
+                mzTolVal = obj.mzTol;
+            end
             switch obj.MSPolarity
                 case "positive"
                     Rules = load("MassListData.mat","AddPosRules","NLossRules");
@@ -671,10 +768,10 @@ classdef RawData
                 case "ppm"
                     PossibleBaseMZindex = cell(size(PossibleBaseMZ));
                     for n=1:size(mzVec,2)
-                        [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mzVec(n),obj.mzTol,'ByRows',1,'DataScale',mzVec(n)*10^-6,'OutputAllIndices',true);
+                        [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mzVec(n),mzTolVal,'ByRows',1,'DataScale',mzVec(n)*10^-6,'OutputAllIndices',true);
                     end
                 case "Da"
-                    [~,PossibleBaseMZindex]=ismembertol(PossibleBaseMZ,mzVec,obj.mzTol,'DataScale',1,'OutputAllIndices',true);
+                    [~,PossibleBaseMZindex]=ismembertol(PossibleBaseMZ,mzVec,mzTolVal,'DataScale',1,'OutputAllIndices',true);
             end
             %%Check Adducts
             %transform cell array to array
@@ -739,7 +836,7 @@ classdef RawData
             obj.ROImzVec(empt) = [];
         end
 
-        function [valuesFiltered,obj] = FilterIsotopes(obj,IntegrationResults)
+        function [valuesFiltered,obj] = FilterIsotopes(obj,IntegrationResults,varargin)
             %% IsotopeFilterAlgo Filters Isotope Peaks from Internal AriumMS integration results
             %
             %   Calculates possible non Isotope (Base) m/z forch each
@@ -749,7 +846,12 @@ classdef RawData
             %   shapes are compared using Cosine Similarity (>=0.85), and
             %   Base m/z intensity adjusted by the relative Isotope
             %   occurence must be within 10% of the Isotope intensity
-
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+                mzTolVal = bayesOptions.mzTol;
+            else
+                mzTolVal = obj.mzTol;
+            end
             %Preparation
             minCosSim = obj.CosSim;
             IsotopeRules = load("MassListData.mat","IsotopeRules");
@@ -765,10 +867,10 @@ classdef RawData
                 case "ppm"
                     PossibleBaseMZindex = cell(size(IsotopeRules,1),size(mz,2));
                     for n=1:size(mz,2)
-                        [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mz(n),obj.mzTol,'ByRows',1,'DataScale',mz(n)*10^-6,'OutputAllIndices',true);
+                        [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mz(n),mzTolVal,'ByRows',1,'DataScale',mz(n)*10^-6,'OutputAllIndices',true);
                     end
                 case "Da"
-                    [~,PossibleBaseMZindex]=ismembertol(PossibleBaseMZ,mz,obj.mzTol,'DataScale',1,'OutputAllIndices',true);
+                    [~,PossibleBaseMZindex]=ismembertol(PossibleBaseMZ,mz,mzTolVal,'DataScale',1,'OutputAllIndices',true);
             end
 
             %build natural isotope occurence factor list
@@ -847,12 +949,21 @@ classdef RawData
             obj.ROImzVec(empt) = [];
         end
 
-        function [obj,Output] = BuildStorageArrays(obj,IntegrationResults)
+        function [obj,Output] = BuildStorageArrays(obj,IntegrationResults,varargin)
             % Gather Data
-            nFiles = size(obj.Files,1);
-            minDataPoints = ceil(nFiles*obj.minOccurence);
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+                TimeTolerance = bayesOptions.timeTol;
+                minOcc = obj.minOccurence;
+            else
+
+                TimeTolerance = obj.RTTol;
+                minOcc = obj.minOccurence;
+            end
+            nFiles = size(obj.nScans,1);
+            minDataPoints = ceil(nFiles*minOcc);
             RTAssign = cellfun(@(x) x(:,2:3),IntegrationResults(3,:),'UniformOutput',false);
-            TimeTolerance = obj.RTTol;
+
             switch obj.EvaluationParameter
                 case "Height"
                     HeightOrArea = 1;
@@ -940,11 +1051,11 @@ classdef RawData
             obj.OccurenceFiltered = Removed + sum(idx);
 
             %% local function
-            function peakXIC = ExtractXIC(xic,peakBorder) 
-                %reshape input to column vector 
+            function peakXIC = ExtractXIC(xic,peakBorder)
+                %reshape input to column vector
                 [originalnRows,originalnCols] = size(peakBorder);
                 peakBorder = reshape(peakBorder,[],1);
-                %preallocation 
+                %preallocation
                 peakXIC = cell(size(peakBorder));
                 for numPeak = 1:size(peakXIC,1)
                     lowerBorder = peakBorder{numPeak,1}(1,1);
@@ -959,14 +1070,14 @@ classdef RawData
                 peakXIC = reshape(peakXIC,originalnRows,originalnCols);
             end
         end
-        
+
         function Output = GroupAndSampleScaling(obj,Output)
             %GroupScale
             Output.IntensityStorage = Output.IntensityStorage/obj.GroupScale;
             %SampleScale
             Output.IntensityStorage = Output.IntensityStorage./obj.SampScale';
         end
-        
+
         function obj = CutScansToSize(obj)
             StartTime = obj.Start;
             EndTime = obj.End;
@@ -980,11 +1091,15 @@ classdef RawData
             obj.ROICells = tempPeakData;
             obj.TimeCells = tempTimeData;
         end
-        
-        function obj = AutoROI(obj,previewFlag)
+
+        function obj = AutoROI(obj,modeFlag,varargin)
+            %check variable input
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+            end
             %%AutoROI Performs fully automated ROI search and augmentation.
-            switch previewFlag
-                case true
+            switch modeFlag
+                case "preview"
                     Peaklist = obj.ROICells(1);
                     Timelist = obj.TimeCells(1);
                     Intthresh = obj.thresh;
@@ -992,22 +1107,23 @@ classdef RawData
                     ErrorUnit = obj.mzErrorUnit;
                     Masserror = obj.mzerror;
 
-                case false
+                case "batch"
                     Peaklist = obj.ROICells;
                     Timelist = obj.TimeCells;
                     Intthresh = obj.thresh;
                     minroiSize = obj.minroi;
                     ErrorUnit = obj.mzErrorUnit;
                     Masserror = obj.mzerror;
-                otherwise
+
+                case "bayes"
                     Peaklist = obj.ROICells;
                     Timelist = obj.TimeCells;
-                    Intthresh = obj.thresh;
-                    minroiSize = obj.minroi;
+                    Intthresh = bayesOptions.intThresh;
+                    minroiSize = bayesOptions.minRoi;
                     ErrorUnit = obj.mzErrorUnit;
-                    Masserror = obj.mzerror;
+                    Masserror = bayesOptions.mzerror;
             end
-            
+
             %preallocate cell arrays
             mzlist = cell(length(Peaklist),1);
             MSroilist = cell(length(Peaklist),1);
@@ -1032,8 +1148,8 @@ classdef RawData
             end
             MSroi_end=MSroi_end-obj.thresh; %subtract intensity threshold
             MSroi_end=max(MSroi_end,0); %set every negative intensity to 0
-            
-            if previewFlag==false
+
+            if modeFlag ~= "preview"
                 %split and pad matrices
                 outROI = mat2cell(MSroi_end,obj.nScans);
                 outTime = mat2cell(time_end,obj.nScans);
@@ -1051,13 +1167,13 @@ classdef RawData
             obj.TimeCells = outTime;
             obj.ROImzVec = mzroi_end;
         end
-        
-        function obj = AlignScans(obj,previewFlag)
+
+        function obj = AlignScans(obj,modeFlag)
             mzQuan = obj.mzQuantil;
             mzEstim = obj.mzEstimMethod;
             mzCorr = obj.mzCorrectionMethod;
-            switch previewFlag
-                case true
+            switch modeFlag
+                case "preview"
                     PeakCells = obj.ROICells(1);
                 otherwise
                     PeakCells = obj.ROICells;
@@ -1068,23 +1184,44 @@ classdef RawData
             end
             obj.ROICells = PeakCells;
         end
-        
-        function obj = CorrectBaseline(obj,previewFlag)
-            WSize = obj.WindowSize;
-            SSize = obj.StepSize;
-            RegMethod = obj.RegressionMethod;
-            EstMethod =obj.EstimationMethod;
-            SmooMethod = obj.SmoothMethod;
-            Quan = obj.QuantilVal;
-            switch previewFlag
-                case true
+
+        function obj = CorrectBaseline(obj,modeFlag,varargin)
+
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+            end
+
+            switch modeFlag
+                case "preview"
                     MSroi = obj.ROICells(1);
                     time=obj.TimeCells(1);
-                otherwise
+                    WSize = obj.WindowSize;
+                    SSize = obj.StepSize;
+                    RegMethod = obj.RegressionMethod;
+                    EstMethod =obj.EstimationMethod;
+                    SmooMethod = obj.SmoothMethod;
+                    Quan = obj.QuantilVal;
+                case "batch"
                     MSroi = obj.ROICells;
                     time=obj.TimeCells;
+                    WSize = obj.WindowSize;
+                    SSize = obj.StepSize;
+                    RegMethod = obj.RegressionMethod;
+                    EstMethod =obj.EstimationMethod;
+                    SmooMethod = obj.SmoothMethod;
+                    Quan = obj.QuantilVal;
+                case "bayes"
+                    MSroi = obj.ROICells;
+                    time=obj.TimeCells;
+                    WSize = bayesOptions.windowSize;
+                    SSize = bayesOptions.stepSize;
+                    RegMethod = obj.RegressionMethod;
+                    EstMethod = string(bayesOptions.estimationMethod);
+                    SmooMethod = obj.SmoothMethod;
+                    Quan = bayesOptions.quantile;
+
             end
-                
+
             parfor id = 1:size(MSroi,1)
                 oldSize=size(MSroi{id});
                 %depad Array
@@ -1100,17 +1237,27 @@ classdef RawData
             end
             obj.ROICells = MSroi;
         end
-        
-        function obj = SmoothPeaks(obj,previewFlag)
-            Frame = obj.FrameSize;
-            Deg = obj.Degree;
-            switch previewFlag
-                case true
+
+        function obj = SmoothPeaks(obj,modeFlag,varargin)
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+            end
+            switch modeFlag
+                case "preview"
                     MSroi = obj.ROICells(1);
                     time=obj.TimeCells(1);
-                otherwise
+                    Frame = obj.FrameSize;
+                    Deg = obj.Degree;
+                case "batch"
                     MSroi = obj.ROICells;
                     time=obj.TimeCells;
+                    Frame = obj.FrameSize;
+                    Deg = obj.Degree;
+                case "bayes"
+                    MSroi = obj.ROICells;
+                    time=obj.TimeCells;
+                    Frame = bayesOptions.frameSize;
+                    Deg = bayesOptions.polyDegree;
             end
             parfor id = 1:size(MSroi,1)
                 %depad Array
@@ -1127,15 +1274,39 @@ classdef RawData
             end
             obj.ROICells = MSroi;
         end
-        
-        function obj = AlignPeaks(obj,previewFlag)
-            switch previewFlag
-                case true
+
+        function obj = AlignPeaks(obj,modeFlag,varargin)
+            if length(varargin) >= 1
+                bayesOptions = varargin{1};
+            end
+            switch modeFlag
+                case "preview"
                     MSroi = obj.ROICells(1);
                     time=obj.TimeCells(1);
-                otherwise
+                    ShiftVal = [obj.maxshiftneg,obj.maxshiftpos];
+                    PW = obj.PulseWidth;
+                    WSR = obj.WindowSizeRatio;
+                    I = obj.Iterations;
+                    GS = obj.GridSteps;
+                    SS = obj.SearchSpace;
+                case "batch"
                     MSroi = obj.ROICells;
                     time=obj.TimeCells;
+                    WSR = obj.WindowSizeRatio;
+                    I = obj.Iterations;
+                    GS = obj.GridSteps;
+                    SS = obj.SearchSpace;
+                    ShiftVal = [obj.maxshiftneg,obj.maxshiftpos];
+                    PW = obj.PulseWidth;
+                case "bayes"
+                    MSroi = obj.ROICells;
+                    time=obj.TimeCells;
+                    ShiftVal = [bayesOptions.maxShiftneg,bayesOptions.maxShiftpos];
+                    PW = bayesOptions.pulseWidth;
+                    WSR = obj.WindowSizeRatio;
+                    I = bayesOptions.iterations;
+                    GS = bayesOptions.gridSteps;
+                    SS = obj.SearchSpace;
             end
             maxScan = max(obj.nScans);
             % rearrange matrices
@@ -1147,12 +1318,7 @@ classdef RawData
             time=vertcat(time{:});
             [~,id]=max(MSroi);
             refTime=time(id);
-            ShiftVal = [obj.maxshiftneg,obj.maxshiftpos];
-            PW = obj.PulseWidth;
-            WSR = obj.WindowSizeRatio;
-            I = obj.Iterations;
-            GS = obj.GridSteps;
-            SS = obj.SearchSpace;
+
             parfor n=1:size(MSroi,2)
                 ROI=reshape(MSroi(:,n),maxScan,[]);
                 ROI=msalign(TimeVec,ROI,refTime(n),'MaxShift',ShiftVal,...
@@ -1165,7 +1331,7 @@ classdef RawData
             obj.ROICells = mat2cell(MSroi,splitVar);
             obj.TimeCells = mat2cell(time,splitVar);
         end
-        
+
         function obj = FinalizeROI(obj)
             time = obj.TimeCells;
             MSroi = obj.ROICells;
@@ -1203,6 +1369,8 @@ classdef RawData
 
         function obj = MS2CleanUp(obj)
             %normalize m/z intensities then remove m/z with Intensity < 5%
+            % Removes all m/z values with intensity below 100.
+            % Remove all Spectra with only one mass peak
             %% Clean Data
             PeakData = obj.PeakDataMSn;
             TimeData = obj.TimeDataMSn;
