@@ -1,17 +1,17 @@
-function [mzroi,MSroi,roicell]=ROIpeaks2(peaks,thresh,mzerror,ErrorUnit,minroi,time)
+function [mzroi,MSroi,roicell]=ROIpeaks3(peaks,thresh,mzerror,ErrorUnit,minroi,time)
 % 
 % This function allows building a MS data matrix from structure variable peaks 
-% selecting only the regions of interest (roi). These regions are defined acording to 
-% the following input parameters: thresh, mzeror and minroi 
+% selecting only the regions of interest (roi). These regions are defined according to 
+% the following input parameters: thresh, mzerror and minroi 
 % 
 % INPUT
 % % peaks is the cell variable containing MS measurements with as many cells 
 % as MS spectra/retention times (nrows). In every cell, mz and MS intensities 
 % are given for every spectrum (every cell/MS spectrum has different lengths)
-% % thresh is a parameter to filter significative MS intensities, 
+% % thresh is a parameter to filter significant MS intensities, 
 % i.e thresh = 0.1% max measured intensity (max(max(MSroi))
 % % mzerror is a parameter to define the width of mz experimental values in peaks
-% to be considered coming from the same theoreical mz value 
+% to be considered coming from the same theoretical mz value 
 % % minroi minimum number of elution times to be considered in a roi (e.g. 3)
 % % nrows number of cells/rows/spectra of the variable peaks to be processed
 % % time elution (retention) times corresponding to cells/rows/spectra 
@@ -29,11 +29,12 @@ function [mzroi,MSroi,roicell]=ROIpeaks2(peaks,thresh,mzerror,ErrorUnit,minroi,t
 % roicell{:,5}= mzroi, final mz balue of the considered ROI (mean of all mz values 
 % included in ROI 
 %
-% e.g. mzroi,MSroi,roicell]=ROIpeaksnew(peaks,1000,0.01,10,1899,time);
+% e.g. mzroi,MSroi,roicell]=ROIpeaks2(peaks,1000,0.01,10,1899,time);
 % where thresh=1000, mzerror=0.01 and minroi=10
 % background in MSroi is MSroi=randn(nrows,nmzroi).*0.3*thresh;
 % Adjustments: Addition of random noise removed
 % added relative mz error [ppm] support
+% use weighted mean for mzroi calculations
 mzroi=[];
 MSroi=[];
 roicell{1,1}=[];
@@ -42,9 +43,8 @@ roicell{1,3}=[];
 roicell{1,4}=[];
 nmzroi=1;
 
-nrows = height(peaks);
 % looking for mzroi values  
-
+nrows = height(peaks);
 
 for irow=1:nrows
     A=cell2mat(peaks(irow,1));
@@ -53,32 +53,29 @@ for irow=1:nrows
     if isfinite(ipeak)
         mz=A(ipeak,1);
         MS=A(ipeak,2);
-        if irow==1,mzroi=mz(1);end
-        
+        if irow==1
+            mzroi=mz(1);
+        end
         
         nmz=height(mz);
         
         for i=1:nmz
-            
             switch ErrorUnit
                 case "Da"
                     ieq=find(abs(mzroi-mz(i))<=mzerror);
                 case "ppm"
                     ieq=find(abs(((mzroi-mz(i))/mz(i))*10^6)<=mzerror);
             end
-            
-                     
+               
             if isfinite(ieq)
                 ieq=ieq(1); 
                 roicell{ieq,1}=[roicell{ieq,1},mz(i)];
                 roicell{ieq,2}=[roicell{ieq,2},time(irow)];
                 roicell{ieq,3}=[roicell{ieq,3},MS(i)];
                 roicell{ieq,4}=[roicell{ieq,4},irow];
-                roicell{ieq,5}=mean(roicell{ieq,1});
+                roicell{ieq,5}=mean(roicell{ieq,1},"Weights",roicell{ieq,3}/max(roicell{ieq,3}));
                 mzroi(ieq)=roicell{ieq,5};
-                
             else
-                
                 nmzroi=nmzroi+1;
                 roicell{nmzroi,1}=mz(i);
                 roicell{nmzroi,2}=time(irow);
@@ -92,26 +89,32 @@ for irow=1:nrows
         end
         
     end
-    
-    
 end
 
 % sort mzroi values
 [mzroi,isort]=sort(mzroi);
 
-for i=1:nmzroi,for j=1:5,roicellsort{i,j}=roicell{isort(i),j};end,end
+for i=1:nmzroi
+    for j=1:5
+        roicellsort{i,j}=roicell{isort(i),j};
+    end
+end
 roicell=roicellsort;
 
 % Now, filter those having a minimum number of elution times (minroi)
 % and a maximum value higher than thresh
 
 for i=1:nmzroi 
-    if isempty(roicell{i,1}),roicell{i,1}=0;end
+    if isempty(roicell{i,1})
+        roicell{i,1}=0;
+    end
     numberroi(i)=length(roicell{i,1});
 end
 
 for i=1:nmzroi
-    if isempty(roicell{i,3}),roicell{i,3}=0;end
+    if isempty(roicell{i,3})
+        roicell{i,3}=0;
+    end
     maxroi(i)=max(roicell{i,3});
 end
 
@@ -123,7 +126,7 @@ roicell=roicell(iroi,:);
 
 % Evaluation of MS values from roicell{nmzroi,3}
 % Now evaluating MS matrix only for thes mzroi values
-%presllocation
+% Defining first the backgound
 MSroi=zeros(nrows,nmzroi);
 
 for i=1:nmzroi
@@ -137,6 +140,7 @@ end
 
 % slightly smooth MSroi
 MSroi = smoothdata(MSroi,"gaussian",3);
+
     
 
     

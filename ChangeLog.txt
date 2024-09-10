@@ -1,3 +1,24 @@
+1.2.alpha4.0: Raw peak data, processing temp files, and ROI results are now stored in temporary files on the hard disk to reduce memory requirements.
+         Plot added to data visualization: Internal Standard Mass Deviation plot.
+         Profile data is now converted to centroid data. Reducing calculation times and memory requirements.
+         Added identification level proposed by Schymanski et.al. to results table.
+         Added plotting of EICs to processing view. Multiple EICs can be selected at the same time. Separate m/z with , or ;
+    Minor changes:
+        Peak alignment parameters Maximum Shift and Pulse Width and baseline correction parameters Window Size and Step Size are now entered in seconds instead of scans.
+        Filter strength option for entropy filter added. Specify the strength of the entropy filter. The entropy of all peaks is binned and the bin edges are used to determine the maximum entropy allowed. 
+        The width of the bins is chosen to cover the data range and reveal the shape of the underlying distribution. Strict: upper edge of the first bin; Medium: upper edge of the third bin; Lax: upper edge of the fifth bin.
+        Changed default quantile value for Spectral Alignment from 0.95 to 0.99.
+        Streamlined internal standard correction, resulting in cleaner code and slightly faster processing.
+        Changed file infos to show number of files with MS2 scans instead of average number of MSn scans per file.
+        Removed robust fit options for baseline correction smoothing methods.
+        Changed ROI mass calculation from mean to weighted mean. Intensities are used as weighting factors.
+
+        Fixed: Graph plotting error in evaluation view when number of augmented groups is odd.
+               Wrong calculation of mass deltas for isotope and adduct/neutral loss filters when using relative mass error.
+               Sub windows are not closed when closing the app.
+               Triangular artifacts caused by interpolation of ROI intensities when there are large gaps.
+               Result table only showing MS2 database results even when MS1 search results but no MS2 results are present.
+
 1.2.alpha3.5: Fixed multiple errors when evaluating MS2 information for more than two groups.
 
 1.2.alpha3.4: Change the way feature peak information is stored. This reduces memory requirements and the size of .ams project files. The change causes an error when plotting integration results with older projects. To fix this, reprocess the files.

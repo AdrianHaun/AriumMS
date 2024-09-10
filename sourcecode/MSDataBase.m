@@ -581,13 +581,15 @@ classdef MSDataBase
             query = append(query,convertStringsToChars(MZmax + " AND EXACT_MASS >= " + MZmin));
             %databasefile = obj.DataBaseFile;
             QueryResults = cell(size(query));
-            local_connection = sqlite(databasefile);
-            for n=1:length(QueryMasses)
+            
+            parfor n=1:length(QueryMasses)
+                local_connection = sqlite(databasefile);
                 if Modifier(n) == true
                     result = fetch(local_connection, query{n});
                 else
                     result = [];
                 end
+                close(local_connection);
                 if ~isempty(result)
                     idx = contains(result.INSTRUMENT_TYPE,AllowedIonization);
                     result(~idx,:) = [];
@@ -596,7 +598,7 @@ classdef MSDataBase
                     QueryResults{n}=result;
                 end
             end
-            close(local_connection);
+            
             %%
             DBSpectra = cell(size(MeasuredSpectra,1),1);
 
@@ -628,7 +630,7 @@ classdef MSDataBase
             %% get indices of high score spectra
             ResultStorage = cell(size(QueryMasses));
             SpectraIndexStorage = cell(size(QueryMasses));
-            for n = 1:length(QueryResults)
+            parfor n = 1:length(QueryResults)
                 %merge scores
                 SC = vertcat(Scores{n,:});
                 if isempty(SC) || isempty(QueryResults{n})
@@ -637,12 +639,15 @@ classdef MSDataBase
                     %get Entry index and Score
                     idx = SC(:,1) >= 800;
                     Val = SC(idx,:);
+                    if isempty(Val)
+                        continue
+                    end
                     %filter duplicates and sort
                     Val = unique(Val,"rows");
                     [~,idx] = sort(Val(:,1),'ascend');
                     Val = Val(idx,:);
                     %sort Query Results
-                    Result = QueryResults{n,1}(Val(:,3),:);
+                    Result = QueryResults{n,1}(Val(:,2),:);
                     Result.SPECTRUM = [];
                     Result.ID_MATCH_SCORE = Val(:,1);
                     [Result,id] = unique(Result,"rows");

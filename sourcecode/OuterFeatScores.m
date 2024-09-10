@@ -47,9 +47,9 @@ parfor n = 1:size(MSnSpectraCells,1)
         end
         ScoreVec = [ScoreVec,SpectraCombinations];
         GroupScores{2,i} = ScoreVec;
-        
     end
     %sort groupscores to original group
+
     GroupScores = SortBetweenScores(GroupScores);
     BetweenGroupScores(n,:) = GroupScores;
 end

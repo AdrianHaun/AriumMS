@@ -37,6 +37,7 @@ classdef FeatData
         dataBaseResultsMS2          (:,1) cell
         DBScoreSpectraID            (:,:) cell
         DataBaseSpectra             (:,:) cell
+        IdentificationLevel         (:,1) string
     end
 
     methods
@@ -89,6 +90,28 @@ classdef FeatData
             obj = obj.GetOccurencesAndUniqueness;
             obj = obj.CalculateAveragesAndSTD;
             obj = obj.CalculateFoldChanges;
+            obj = obj.BuildIdentificaltionLevelStrings;
+        end
+        
+        function obj = BuildIdentificaltionLevelStrings(obj)
+            % Lv5 unique Feature - mz@RT
+            obj.IdentificationLevel = "Level " + ones(size(obj.NameStringArray))*5;
+
+            % Lv 4 molecular formula - isotope abundance distribution, charge state and adduct ion determination
+
+            % Lv 3 tentative structure - MS1 database search
+            if ~isempty(obj.dataBaseResultsMS1)
+                id = cellfun(@isempty ,obj.dataBaseResultsMS1);
+                obj.IdentificationLevel(~id) = "Level 3";
+            end
+
+            % Lv 2 putative identification - MS2 database search
+            if ~isempty(obj.dataBaseResultsMS2)
+                id = cellfun(@isempty ,obj.dataBaseResultsMS2);
+                obj.IdentificationLevel(~id) = "Level 2a";
+            end
+            % Lv 1 validated Identification - reference standard
+
         end
 
         function obj = BuildInGroupString(obj)
@@ -304,19 +327,25 @@ classdef FeatData
             % FragEnergy = cell(size(RawDataArray));
             %gather MS2Data
             parfor n=1:size(RawDataArray,2)
-                PeakData{n} = vertcat(RawDataArray(n).PeakDataMSn{:});
-                TimeData{n} = vertcat(RawDataArray(n).TimeDataMSn{:});
+                tempPeaks = RawDataArray(n).RawDataFileObj.PeakDataMSn;
+                PeakData{n} = vertcat(tempPeaks{:});
+                tempTime = RawDataArray(n).RawDataFileObj.TimeDataMSn;
+                TimeData{n} = vertcat(tempTime{:});
+                precursorTemp = RawDataArray(n).RawDataFileObj.Precursor;
                 % FragType{n} = vertcat(RawDataArray(n).CollisionType{:});
                 % FragEnergy{n} = vertcat(RawDataArray(n).CollisionEnergy{:});
+
                 %convert pseudo-molecular ion precursor to molecular
                 %precursor
                 switch RawDataArray(n).MSPolarity
                     case "negative"
-                        Precursor{n} = round(vertcat(RawDataArray(n).Precursor{:}) + 1.007825,5);
+                        Precursor{n} = round(vertcat(precursorTemp{:}) - 1.007825,5);
                     case "positive"
-                        Precursor{n} = round(vertcat(RawDataArray(n).Precursor{:}) - 1.007825,5);
+                        Precursor{n} = round(vertcat(precursorTemp{:}) + 1.007825,5);
                 end
             end
+            clearvars tempTime tempPeaks precursorTemp
+
             FeatMZ = obj.IdentifierArray(:,1);
             FeatMZ = repmat(FeatMZ,1,size(obj.OriginalGroup,2));
             FeatMZ = reshape(FeatMZ,[],1);
@@ -358,7 +387,6 @@ classdef FeatData
             InnerScores = cellfun(@InnerFeatScores,obj.MSnSpectra,'UniformOutput',false);
             % merge spectra with score >=850
             obj.FilteredMSnSpectra = cellfun(@FilterSameSpectra,obj.MSnSpectra,InnerScores,'UniformOutput',false);
-
         end
 
 
@@ -658,6 +686,8 @@ classdef FeatData
 
             %store final Feature Spectra
             obj.FeatureMSnSpectra = FullMerge;
+
+            obj = obj.BuildIdentificaltionLevelStrings;
         end
     end
 end
