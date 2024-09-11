@@ -1,3 +1,6 @@
+1.2.alpha4.1: m/z correction with internal standard uses now Shape-preserving piecewise cubic Hermite (pchip) interpolation to generate correction values, instead of flat nearest neighbor correction. 
+              m/z correction values outside the mass range covered by internal standards are generated using nearest neighbor extrapolation.
+
 1.2.alpha4.0: Raw peak data, processing temp files, and ROI results are now stored in temporary files on the hard disk to reduce memory requirements.
          Plot added to data visualization: Internal Standard Mass Deviation plot.
          Profile data is now converted to centroid data. Reducing calculation times and memory requirements.

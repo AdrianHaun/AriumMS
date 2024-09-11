@@ -95,7 +95,7 @@ classdef RawData
         ISMassFound         (1,:) double
         ISdelta             (:,:) double
         ISRTRange           (:,:) cell
-        ISMZRange           (:,:) double
+        mzCorrectionFcn 
         % Number of removed Features
         SNFiltered          (1,1) double
         EntropyFiltered     (1,1) double
@@ -355,7 +355,6 @@ classdef RawData
             end
             % mass correction
             if obj.MassCal == true && ~isempty(obj.ISValue)
-                obj = obj.findMZRanges;
                 obj = obj.ISMassCorrection;
             end
 
@@ -960,31 +959,18 @@ classdef RawData
             obj.ISRTRange=timeRange;
         end
 
-        function obj = findMZRanges(obj)
-            ISmz = obj.ISMass;
-            mzVec = obj.TempDataFileObj.ROImzVec;
-            nMZ=numel(mzVec);
-            %mzvalues
-            [ISmz,idx] = sort(ISmz,'ascend'); % sort mz column
-            MZRange = arrayfun(@(i) mean(ISmz(i:i+1)),1:1:length(ISmz)-1)'; %mean between two elements
-            MZRange=MZRange-mzVec; %find indices of MZ values with minimum distance
-            [~,MZRange]=min(abs(MZRange),[],2);
-            mzborderEnds=[MZRange;nMZ]; % build ranges as 2 column matrix
-            mzborderStarts=[1;MZRange+1];
-            MZRange=[mzborderStarts mzborderEnds]';
-            %resort Ranges
-            unsorted = 1:length(ISmz);
-            newIndMZ(idx) = unsorted;
-            obj.ISMZRange=MZRange(:,newIndMZ);
-        end
-
         function obj = ISMassCorrection(obj)
-            CorrectionVector = zeros(size(obj.TempDataFileObj.ROImzVec));
-            deltas = obj.ISdelta;
-            Ranges = obj.ISMZRange;
-            for nIS = 1:numel(deltas)
-                CorrectionVector(Ranges(1,nIS):Ranges(2,nIS)) = deltas(nIS);
-            end
+            %% fit correction function
+            [xData, yData] = prepareCurveData(obj.ISMass, obj.ISdelta);
+            % Set up fittype and options.
+            ft = 'pchipinterp';
+            opts = fitoptions( 'Method', 'PchipInterpolant' );
+            opts.ExtrapolationMethod = 'nearest';
+            % Fit model to data.
+            obj.mzCorrectionFcn = fit(xData,yData,ft,opts);
+
+            % build mass correction vector and subtract from ROI masses
+            CorrectionVector = obj.mzCorrectionFcn(obj.TempDataFileObj.ROImzVec);
             obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec-CorrectionVector;
         end
 
@@ -1361,7 +1347,7 @@ classdef RawData
             parfor d = 1 : length(peakList)
                 P= peakList{d,1};
                 T= timeList{d,1};
-                [mzlist{d,1},MSroilist{d,1},~]=ROIpeaks2(P,intThresh,massError,errorUnit,minroiSize,T);
+                [mzlist{d,1},MSroilist{d,1},~]=ROIpeaks3(P,intThresh,massError,errorUnit,minroiSize,T);
             end
             if isscalar(mzlist) %Skip Augmentation if only one Sample
                 MSroi_end=MSroilist{1,1};
@@ -1369,7 +1355,7 @@ classdef RawData
                 time_end=timeList{1,1};
             else
                 for i = 2:size(peakList,1)
-                    [MSroilist{1,1},mzlist{1,1},timeList{1,1}] = MSroiaug2(MSroilist{1,1},MSroilist{i,1},mzlist{1,1},mzlist{i,1},massError,errorUnit,intThresh,timeList{1,1},timeList{i,1});
+                    [MSroilist{1,1},mzlist{1,1},timeList{1,1}] = MSroiaug3(MSroilist{1,1},MSroilist{i,1},mzlist{1,1},mzlist{i,1},massError,errorUnit,intThresh,timeList{1,1},timeList{i,1});
                 end
                 MSroi_end=MSroilist{1,1};
                 mzroi_end=mzlist{1,1};
