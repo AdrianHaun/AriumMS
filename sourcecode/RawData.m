@@ -95,7 +95,7 @@ classdef RawData
         ISMassFound         (1,:) double
         ISdelta             (:,:) double
         ISRTRange           (:,:) cell
-        mzCorrectionFcn 
+        mzCorrectionFcn
         % Number of removed Features
         SNFiltered          (1,1) double
         EntropyFiltered     (1,1) double
@@ -212,7 +212,7 @@ classdef RawData
 
                 Peaks{n,1} = CentroidScans(peakTemp);
                 times{n,1} = timeTemp;
-                
+
             end
             if Level == 1
                 obj.RawDataFileObj.TimeDataMS1 = times;
@@ -927,7 +927,7 @@ classdef RawData
 
         function obj = findISTimeRanges(obj)
             ISData = obj.ISRT;
-            times = obj.TempDataFileObj.TimeDataMS1;
+            times = obj.TempDataFileObj.TimeCells;
             [ISData,idx] = sort(ISData,'ascend'); % sort RT
             MidTimes = arrayfun(@(i) mean(ISData(i:i+1)),1:1:length(ISData)-1)'; %get midpoints between IS retentiontimes
             %build time range array, first column starttime 2nd column end
@@ -960,18 +960,22 @@ classdef RawData
         end
 
         function obj = ISMassCorrection(obj)
-            %% fit correction function
-            [xData, yData] = prepareCurveData(obj.ISMass, obj.ISdelta);
-            % Set up fittype and options.
-            ft = 'pchipinterp';
-            opts = fitoptions( 'Method', 'PchipInterpolant' );
-            opts.ExtrapolationMethod = 'nearest';
-            % Fit model to data.
-            obj.mzCorrectionFcn = fit(xData,yData,ft,opts);
+            if numel(obj.ISdelta) == 1
+                obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec-obj.ISdelta;
+            else
+                %% fit correction function
+                [xData, yData] = prepareCurveData(obj.ISMass, obj.ISdelta);
+                % Set up fittype and options.
+                ft = 'pchipinterp';
+                opts = fitoptions( 'Method', 'PchipInterpolant' );
+                opts.ExtrapolationMethod = 'nearest';
+                % Fit model to data.
+                obj.mzCorrectionFcn = fit(xData,yData,ft,opts);
 
-            % build mass correction vector and subtract from ROI masses
-            CorrectionVector = obj.mzCorrectionFcn(obj.TempDataFileObj.ROImzVec);
-            obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec-CorrectionVector;
+                % build mass correction vector and subtract from ROI masses
+                CorrectionVector = obj.mzCorrectionFcn(obj.TempDataFileObj.ROImzVec);
+                obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec-CorrectionVector;
+            end
         end
 
         function [valuesFiltered,obj] = FilterAdducts(obj,IntegrationResults)
@@ -1275,7 +1279,6 @@ classdef RawData
             % duplicate row filter
             [Output.FeatIdentifiers,idx] = unique(Output.FeatIdentifiers,'rows','stable');
             Output.IntensityStorage = Output.IntensityStorage(idx,:);
-            Output.FeatIdentifiers = Output.FeatIdentifiers(idx,:);
             Output.XIC = Output.XIC(idx,:);
             Output.RetentionTimeStorage = Output.RetentionTimeStorage(idx,:);
             Output.EntropyStorage = Output.EntropyStorage(idx,:);
@@ -1533,9 +1536,6 @@ classdef RawData
             obj.TempDataFileObj.ROImzVec(id) = [];
             obj.TempDataFileObj.ROIMat = sparse(MStemp);
             obj.TempDataFileObj.timeVec = round(vertcat(time{:}),1);
-            %remove temporaries
-            obj.TempDataFileObj.TimeCells = [];
-            obj.TempDataFileObj.ROICells = [];
         end
 
         function [PeakData,TimeData,PrecursorData,ColType,ColEnergy]= MS2CleanUp(obj,PeakData,TimeData,PrecursorData,ColType,ColEnergy)
@@ -1553,7 +1553,7 @@ classdef RawData
                     Peak{n,1}(:,2) = Peak{n,1}(:,2)/max(Peak{n,1}(:,2));
                 end
                 PeakData{k,1}=Peak;
-                
+
             end
         end
     end

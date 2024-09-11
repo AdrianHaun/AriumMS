@@ -1,3 +1,5 @@
+1.2.alpha4.1.1: fixed error when there are only one internal standard found for mz correction.
+                
 1.2.alpha4.1: m/z correction with internal standard uses now Shape-preserving piecewise cubic Hermite (pchip) interpolation to generate correction values, instead of flat nearest neighbor correction. 
               m/z correction values outside the mass range covered by internal standards are generated using nearest neighbor extrapolation.
 
