@@ -95,7 +95,7 @@ classdef RawData
         ISMassFound         (1,:) double
         ISdelta             (:,:) double
         ISRTRange           (:,:) cell
-        mzCorrectionFcn
+        mzCorrectionFcn     
         % Number of removed Features
         SNFiltered          (1,1) double
         EntropyFiltered     (1,1) double
@@ -509,6 +509,8 @@ classdef RawData
                         obj.GridSteps = bayesOptions.gridSteps;
                     end
                     %baseline parameters
+                    %always set smoothing to none
+                    obj.SmoothMethod = "none";
                     if ismember("windowSize",bayesOptions.Properties.VariableNames)
                         obj.WindowSize = bayesOptions.windowSize;
                     end
@@ -520,9 +522,6 @@ classdef RawData
                     end
                     if ismember("estimationMethod",bayesOptions.Properties.VariableNames)
                         obj.EstimationMethod = bayesOptions.estimationMethod;
-                    end
-                    if ismember("smoothingMethod",bayesOptions.Properties.VariableNames)
-                        obj.SmoothMethod = bayesOptions.smoothingMethod;
                     end
                     if ismember("quantile",bayesOptions.Properties.VariableNames)
                         obj.QuantilVal = bayesOptions.quantile;
@@ -633,6 +632,8 @@ classdef RawData
                     if ismember("baselineCorrection",bayesOptions.Properties.VariableNames)
                         obj.BaseCorr = bayesOptions.baselineCorrection == "true";
                         if bayesOptions.baselineCorrection == "true"
+                            %always set smoothing to none
+                            obj.SmoothMethod = "none";
                             if ismember("windowSize",bayesOptions.Properties.VariableNames)
                                 obj.WindowSize = bayesOptions.windowSize;
                             end
@@ -749,7 +750,7 @@ classdef RawData
                         header = header + i + " ";
                     end
                 end
-                message = ["Reason: Internal standard peak was not found in this group","Check the specified m/z or increase the mass tolerance"];
+                message = ["Reason: Internal standard mass was not found in this group","Check the specified m/z or increase the mass tolerance"];
                 fig = uifigure;
                 uialert(fig,message,header,'Icon','warning');
             end
@@ -775,7 +776,7 @@ classdef RawData
             ISData = obj.BuildStorageArrays(ISIntegrationData,obj.ISMassFound);
 
             % check if RT Range is Correct and Remove Feature outside range
-            nIS = numel(obj.ISMass);
+            nIS = height(obj.ISDat);
             counter = 1;
             id = [];
             while counter <= nIS
@@ -786,7 +787,7 @@ classdef RawData
                     case "Da"
                         idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz) >= obj.mzTol;
                     case "ppm"
-                        idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz)./ISData.FeatIdentifiers(:,1)*10^6 >= obj.mzTol;
+                        idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz)./ISmz*10^6 >= obj.mzTol;
                 end
                 idrt = abs(ISData.FeatIdentifiers(:,2)-IStime)>=timeTol;
                 id = [id,any([idmz,idrt],2)];
@@ -840,7 +841,7 @@ classdef RawData
             if all(~foundMassID)
                 % if no IS mass found, throw warning and exit
                 header="Skipping ISTD Normalization";
-                message = ["Reason: no peaks found within the time tolerance","Check the specified retention time or increase the time tolerance"];
+                message = ["Reason: Every internal standard is missing peaks in one or more samples.","Check the specified retention time or increase the time tolerance"];
                 fig = uifigure;
                 uialert(fig,message,header,'Icon','warning');
                 return
@@ -852,7 +853,7 @@ classdef RawData
                         header = header + i + ", ";
                     end
                 end
-                message = ["Reason: For one or more samples no suitable peak within the time tolerance was found","Check the specified retention time or increase the time tolerance"];
+                message = ["Reason: Internal standard is missing peaks in one or more samples","Check the specified retention time or increase the time tolerance"];
                 fig = uifigure;
                 uialert(fig,message,header,'Icon','warning');
             end
@@ -960,7 +961,7 @@ classdef RawData
         end
 
         function obj = ISMassCorrection(obj)
-            if numel(obj.ISdelta) == 1
+            if isscalar(obj.ISdelta)
                 obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec-obj.ISdelta;
             else
                 %% fit correction function
@@ -973,8 +974,8 @@ classdef RawData
                 obj.mzCorrectionFcn = fit(xData,yData,ft,opts);
 
                 % build mass correction vector and subtract from ROI masses
-                CorrectionVector = obj.mzCorrectionFcn(obj.TempDataFileObj.ROImzVec);
-                obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec-CorrectionVector;
+                mzCorrectionVector = obj.mzCorrectionFcn(obj.TempDataFileObj.ROImzVec);
+                obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec - mzCorrectionVector;
             end
         end
 
@@ -1192,10 +1193,12 @@ classdef RawData
             if isscalar(varargin)
                 mzVector = varargin{1};
                 minDataPoints = nFiles;
+                isISIntegration = true;
             else
                 mzVector = obj.TempDataFileObj.ROImzVec;
                 minOcc = obj.minOccurence;
                 minDataPoints = ceil(nFiles*minOcc);
+                isISIntegration = false;
             end
 
             % Gather Data
@@ -1217,8 +1220,10 @@ classdef RawData
             RTAssign(idx)=[];
             IntegrationResults(:,idx)=[];
             mzVector(:,idx)=[];
-            obj.TempDataFileObj.ROImzVec(:,idx) = [];
-            obj.TempDataFileObj.ROIMat(:,idx) = [];
+            if isISIntegration == false
+                obj.TempDataFileObj.ROImzVec(:,idx) = [];
+                obj.TempDataFileObj.ROIMat(:,idx) = [];
+            end
 
             % preallocate Storage CellArrays
             IntStorage = cell(size(mzVector));
@@ -1228,17 +1233,26 @@ classdef RawData
             Entropy_Storage = cell(size(mzVector));
             SNStorage = cell(size(mzVector));
             timeVec = obj.TempDataFileObj.timeVec;
+
+            intensities = IntegrationResults(HeightOrArea,:);
+            lowerBorders = IntegrationResults(2,:);
+            upperBorders = IntegrationResults(2,:);
+            entropyAndSN = IntegrationResults(4,:);
+            XICvec = IntegrationResults(5,:);
+
             parfor n=1:size(RTAssign,2)
-                Intensities = IntegrationResults{HeightOrArea,n}(:,1);
+                localIntensity = intensities{n}(:,1)
+                localLowerBorder = lowerBorders{n}(:,2);
+                localUpperBorder = upperBorders{n}(:,3);
+                localEntropy = entropyAndSN{n}(:,1);
+                localSN = entropyAndSN{n}(:,2);
+                localXIC = [XICvec{n},timeVec];
+
                 Times = RTAssign{n}(:,1);
-                LowerBorders = IntegrationResults{2,n}(:,2);
-                UpperBorders = IntegrationResults{2,n}(:,3);
-                Entropy = IntegrationResults{4,n}(:,1);
-                SN = IntegrationResults{4,n}(:,2);
                 SampleIndex = RTAssign{n}(:,2);
-                XICvec = [IntegrationResults{5,n},timeVec];
+                
                 %find unique Retention Times
-                [UniqueTimes,IndexToUnique]=uniquetol(Times,TimeTolerance,'DataScale',1,'OutputAllIndices',true);
+                [UniqueTimes,IndexToUnique] = uniquetol(Times,TimeTolerance,'DataScale',1,'OutputAllIndices',true);
 
                 % preallocate storage Matrices
                 AvgTimeVec = zeros(size(UniqueTimes));
@@ -1250,14 +1264,15 @@ classdef RawData
                 SNMat = zeros(length(UniqueTimes),nFiles);
                 mzValue = repmat(mzVector(n),length(UniqueTimes),1);
                 % uniqueRT loop
+
                 for numRTs = 1:length(UniqueTimes)
                     AvgTimeVec(numRTs) = mean(Times(IndexToUnique{numRTs}));
-                    IntMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = Intensities(IndexToUnique{numRTs});
+                    IntMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localIntensity(IndexToUnique{numRTs});
                     TimesMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = Times(IndexToUnique{numRTs});
-                    LowerBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = LowerBorders(IndexToUnique{numRTs});
-                    UpperBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = UpperBorders(IndexToUnique{numRTs});
-                    EntropyMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = Entropy(IndexToUnique{numRTs});
-                    SNMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = SN(IndexToUnique{numRTs});
+                    LowerBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localLowerBorder(IndexToUnique{numRTs});
+                    UpperBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localUpperBorder(IndexToUnique{numRTs});
+                    EntropyMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localEntropy(IndexToUnique{numRTs});
+                    SNMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localSN(IndexToUnique{numRTs});
                 end
                 IntStorage{n} = IntMat;
                 FeatId{n} = [mzValue,AvgTimeVec];
@@ -1265,7 +1280,7 @@ classdef RawData
                 BordersMat = cat(3,LowerBordersMat,UpperBordersMat);
                 BordersMat=mat2cell(BordersMat,ones(1,numel(UniqueTimes)),ones(1,nFiles),2);
                 BordersMat = cellfun(@(x) squeeze(x), BordersMat, 'UniformOutput', false);
-                XIC{n} = ExtractXIC(XICvec,BordersMat);
+                XIC{n} = ExtractXIC(localXIC,BordersMat);
                 Entropy_Storage{n} = EntropyMat;
                 SNStorage{n} = SNMat;
             end
@@ -1292,7 +1307,10 @@ classdef RawData
             Output.RetentionTimeStorage(idx,:) = [];
             Output.EntropyStorage(idx,:) = [];
             Output.Signal2NoiseStorage(idx,:) = [];
-            obj.OccurenceFiltered = Removed + sum(idx);
+             if isISIntegration == false
+                obj.OccurenceFiltered = Removed + sum(idx);
+            end
+            
         end
 
         function Output = GroupAndSampleScaling(obj,Output)

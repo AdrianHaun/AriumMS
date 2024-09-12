@@ -1,3 +1,7 @@
+1.2.alpha4.1.2: fixed internal standard mass deviation plot error when there are only one internal standard found for mz correction.
+		fixed wrong IS processing when multiple IS are selected but not all are found.
+		Reduced memory usage when gathering final integration results. 
+
 1.2.alpha4.1.1: fixed error when there are only one internal standard found for mz correction.
                 
 1.2.alpha4.1: m/z correction with internal standard uses now Shape-preserving piecewise cubic Hermite (pchip) interpolation to generate correction values, instead of flat nearest neighbor correction. 
