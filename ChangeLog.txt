@@ -1,3 +1,7 @@
+1.2.alpha4.2.0: internal standard normalization uses now Shape-preserving piecewise cubic Hermite (pchip) interpolation to generate correction values, instead of flat nearest neighbor correction. 
+                fixed wrong IS mass delta when IS was not specified in ascending mass order
+		        
+
 1.2.alpha4.1.2: fixed internal standard mass deviation plot error when there are only one internal standard found for mz correction.
 		fixed wrong IS processing when multiple IS are selected but not all are found.
 		Reduced memory usage when gathering final integration results. 

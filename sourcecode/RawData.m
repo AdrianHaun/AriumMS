@@ -76,8 +76,8 @@ classdef RawData
         entropyFilter       (1,1) logical = false
         entropyStrength     (1,1) string {mustBeMember(entropyStrength,["strict","medium","lax"])} = "medium"
         %% DataStorage
-        RawDataFile        string
-        RawDataFileObj     (1,1)
+        RawDataFile         string
+        RawDataFileObj      (1,1)
         TempDataFile        string
         TempDataFileObj     (1,1)
         ROIDataFile         string
@@ -94,8 +94,8 @@ classdef RawData
         ISMass              (1,:) double
         ISMassFound         (1,:) double
         ISdelta             (:,:) double
-        ISRTRange           (:,:) cell
-        mzCorrectionFcn     
+        mzCorrectionFcn     (1,1)
+        intCorrectionFcn    (1,1)
         % Number of removed Features
         SNFiltered          (1,1) double
         EntropyFiltered     (1,1) double
@@ -336,7 +336,6 @@ classdef RawData
             if obj.ISTDCorr == true
                 obj = obj.IntegrateIS;
                 if ~isempty(obj.ISValue)
-                    obj = obj.findISTimeRanges;
                     obj = obj.ISNormalize;
                 end
             end
@@ -727,11 +726,11 @@ classdef RawData
             switch obj.mzTolUnit
                 case "Da"
                     ISid = abs(mzVec-obj.ISMass') <= obj.mzTol;
-                    obj.ISMassFound = mzVec(any(ISid,1));
+                    obj.ISMassFound = sort(mzVec(any(ISid,1)),2,"ascend");
                     foundMassID = any(ISid,2);
                 case "ppm"
                     ISid = abs(mzVec-obj.ISMass')./mzVec*10^6 <= obj.mzTol;
-                    obj.ISMassFound = mzVec(any(ISid,1));
+                    obj.ISMassFound = sort(mzVec(any(ISid,1)),2,"ascend");
                     foundMassID = any(ISid,2);
             end
             %remove IS outside tolerance and throw warning
@@ -836,7 +835,7 @@ classdef RawData
                         foundMassID(n) = any(abs(obj.ISMassFound-ISmz)./ISmz*10^6 <= obj.mzTol);
                 end
             end
-            obj.ISMass = obj.ISMass(foundMassID);
+            obj.ISMass = sort(obj.ISMass(foundMassID),2,'ascend');
             obj.ISdelta = obj.ISMass-obj.ISMassFound;
             if all(~foundMassID)
                 % if no IS mass found, throw warning and exit
@@ -848,8 +847,8 @@ classdef RawData
             elseif any(~foundMassID)
                 % if some IS mass is not found, throw warning and continue
                 header="Skipping ISTD No. ";
-                for i=1:size(check,2)
-                    if check(i) == 0
+                for i=1:size(foundMassID,2)
+                    if foundMassID(i) == 0
                         header = header + i + ", ";
                     end
                 end
@@ -906,18 +905,33 @@ classdef RawData
             else
                 Data = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScansPadded);
             end
-            % Retention time dependent IS normalization
-            IntValues = obj.ISValue;
-            RTRange = obj.ISRTRange;
-            parfor id = 1:size(Data,1)
-                SampleROI = Data{id};
-                for nIS = 1:size(IntValues,2)
-                    ISVal = IntValues(id,nIS);
-                    ISRange = RTRange{id,nIS};
-                    SampleROI(ISRange(1):ISRange(2),:) = SampleROI(ISRange(1):ISRange(2),:)./ISVal;
+
+            timeVectors = mat2cell(obj.TempDataFileObj.timeVec,obj.nScansPadded);
+            
+            % normalize Intensities
+            if isscalar(obj.ISValue) %only one IS
+                value = obj.ISValue;
+                parfor id = 1:size(Data,1)
+                    Data{id} = Data{id}./value;
                 end
-                Data{id} = SampleROI;
+
+            else % multiple IS - Retention time dependent IS normalization
+                retentionTimes = obj.ISRT;
+                intensities = obj.ISValue;
+                % Set up fittype and options.
+                ft = 'pchipinterp';
+                opts = fitoptions( 'Method', 'PchipInterpolant' );
+                opts.ExtrapolationMethod = 'nearest';
+                parfor id = 1:size(Data,1)
+                    %% fit correction function
+                    [xData, yData] = prepareCurveData(retentionTimes, intensities(id,:));                
+                    % Fit model to data.
+                    intFcn = fit(xData,yData,ft,opts);
+                    correctionVector = intFcn(timeVectors{id});
+                    Data{id} = Data{id}./correctionVector;
+                end
             end
+
             %store corrected Matrices back into object
             if obj.ISApply == "S&B"
                 obj.TempDataFileObj.ROIMatBLK = Data{end};
@@ -926,44 +940,11 @@ classdef RawData
             obj.TempDataFileObj.ROIMat = vertcat(Data{:});
         end
 
-        function obj = findISTimeRanges(obj)
-            ISData = obj.ISRT;
-            times = obj.TempDataFileObj.TimeCells;
-            [ISData,idx] = sort(ISData,'ascend'); % sort RT
-            MidTimes = arrayfun(@(i) mean(ISData(i:i+1)),1:1:length(ISData)-1)'; %get midpoints between IS retentiontimes
-            %build time range array, first column starttime 2nd column end
-            %time
-            starts = [0;MidTimes];
-            ends = [MidTimes;Inf];
-            range = [starts,ends];
-            timeRange = cell(numel(times),numel(ISData));
-            for numSample = 1:numel(times)
-                localtimeVec = times{numSample};
-                for numIS = 1:numel(ISData)
-                    startTime = range(numIS,1);
-                    endTime = range(numIS,2);
-                    %convert to indices
-                    [~,startID] = min(abs(localtimeVec-startTime));
-                    [~,endID] = min(abs(localtimeVec-endTime));
-
-                    if numIS ~= numel(ISData)
-                        timeRange{numSample,numIS} = [startID,endID-1];
-                    else
-                        timeRange{numSample,numIS} = [startID,numel(localtimeVec)];
-                    end
-                end
-            end
-            %resort Ranges
-            unsorted = 1:width(ISData);
-            newIndRT(idx) = unsorted;
-            timeRange = timeRange(:,newIndRT);
-            obj.ISRTRange=timeRange;
-        end
-
         function obj = ISMassCorrection(obj)
-            if isscalar(obj.ISdelta)
+            if isscalar(obj.ISdelta) % single IS constant correction
                 obj.TempDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec-obj.ISdelta;
-            else
+
+            else  % multiple IS - m/z dependent correction
                 %% fit correction function
                 [xData, yData] = prepareCurveData(obj.ISMass, obj.ISdelta);
                 % Set up fittype and options.
