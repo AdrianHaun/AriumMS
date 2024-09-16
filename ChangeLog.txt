@@ -1,3 +1,8 @@
+1.2.alpha4.3.0: Support for measurements with polarity switching or positive and negative polarity measurements in a group. 
+                MS data are automatically converted from pseudomolecular ion mass to molecular mass depending on scan polarity.
+                The polarity switch in the main options has been repurposed to specify the type of MS data, either profile or centroid.
+                If the switch is set to Profile, MS data will be converted to centroid data.
+
 1.2.alpha4.2.0: internal standard normalization uses now Shape-preserving piecewise cubic Hermite (pchip) interpolation to generate correction values, instead of flat nearest neighbor correction. 
                 fixed wrong IS mass delta when IS was not specified in ascending mass order
 		        

@@ -8,7 +8,7 @@ classdef RawData
         Files               (:,1) string
         BlankFiles          (:,1) string
         % Main Processing Options
-        MSPolarity          (1,1) string {mustBeMember(MSPolarity,["positive","negative"])} = "positive"
+        MSFileType          (1,1) string {mustBeMember(MSFileType,["profile","centroid"])} = "profile"
         BLKSubtraction      (1,1) logical = false
         Smoothing           (1,1) logical = false
         BaseCorr            (1,1) logical = false
@@ -95,7 +95,6 @@ classdef RawData
         ISMassFound         (1,:) double
         ISdelta             (:,:) double
         mzCorrectionFcn     (1,1)
-        intCorrectionFcn    (1,1)
         % Number of removed Features
         SNFiltered          (1,1) double
         EntropyFiltered     (1,1) double
@@ -134,7 +133,7 @@ classdef RawData
             obj.ROIDataFile = tempname +".mat";
         end
 
-        function [obj,polarity] = DataCheck(obj)
+        function obj = DataCheck(obj)
             % Check Data, number of Scans, Start/End Times
             %Check minimum number of scans
             FileLoc=[obj.Files;obj.BlankFiles];
@@ -144,8 +143,8 @@ classdef RawData
             RetentionTimes = cell(length(FileLoc),1);
             TIC = cell(length(FileLoc),1);
             BPC = cell(length(FileLoc),1);
-            FileInfo =  struct('Polarity','N/A',...
-                'NumberOfScansMS1',[],...
+            polarityCells = cell(length(FileLoc),1);
+            FileInfo =  struct('NumberOfScansMS1',[],...
                 'NumberOfScansMSn',[],...
                 'StartTime',[],...
                 'EndTime',[]);
@@ -155,14 +154,16 @@ classdef RawData
                 test=test(end);
                 switch test
                     case "mzML"
-                        [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n}] = mzMLinfo(FileLoc{n});
+                        [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n},polarityCells{n}] = mzMLinfo(FileLoc{n});
                     case "mzXML"
-                        [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n}] = mzXMLinfo(FileLoc{n});
+                        [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n},polarityCells{n}] = mzXMLinfo(FileLoc{n});
                 end
             end
             obj.RawDataFileObj.PreviewTICs = TIC;
             obj.RawDataFileObj.PreviewBPCs = BPC;
             obj.RawDataFileObj.PreviewTimes = RetentionTimes;
+            obj.RawDataFileObj.polarity = polarityCells;
+
             % calculate Scan Frequency [Hz]
             scanFrq = [FileInfo.NumberOfScansMS1]./([FileInfo.EndTime]-[FileInfo.StartTime]);
             scanFrq = num2cell(scanFrq);
@@ -174,18 +175,6 @@ classdef RawData
             obj.DataInfo = FileInfo;
             obj.Start=round(min([FileInfo.StartTime]),1);
             obj.End=round(max([FileInfo.EndTime]),1);
-
-            %check ms polarity of files
-            pol = [FileInfo.Polarity];
-            if all(pol=="positive")
-                polarity = "positive";
-                obj.MSPolarity = "positive";
-            elseif all(pol=="negative")
-                polarity = "negative";
-                obj.MSPolarity = "negative";
-            else
-                polarity = "varied";
-            end
         end
 
         function obj = ReadData(obj,DataLoc,Level)
@@ -196,7 +185,8 @@ classdef RawData
             PrecursorMass=cell(nFiles,1);
             CollisionForce=cell(nFiles,1);
             FragMethod=cell(nFiles,1);
-
+            fileType = obj.MSFileType;
+            polarities = obj.RawDataFileObj.polarity;
             parfor n=1:nFiles
                 peakTemp = [];
                 timeTemp = [];
@@ -209,10 +199,15 @@ classdef RawData
                     case "mzXML"
                         [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
                 end
-
-                Peaks{n,1} = CentroidScans(peakTemp);
+                
+                % when profile data then centroid scans
+                if fileType == "profile"
+                    peakTemp = CentroidScans(peakTemp);
+                end
+                %convert from pseudo molecular mass to molecular mass
+                peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n});
+                Peaks{n,1} = peakTemp;
                 times{n,1} = timeTemp;
-
             end
             if Level == 1
                 obj.RawDataFileObj.TimeDataMS1 = times;
@@ -692,13 +687,28 @@ classdef RawData
 
         function obj = removeContaminants(obj)
             % Remove Contaminant Masses load correct Contaminant Masslist
-            switch obj.MSPolarity
+            polarity = obj.RawDataFileObj.polarity;
+            polarity = vertcat(polarity{:});
+            
+            test = strcmp(polarity,"+");
+            if all(test)
+                polarity = "positive";
+            elseif all(~test)
+                polarity = "negative";
+            else
+                polarity = "both";
+            end
+            
+            switch polarity
                 case "positive"
                     Contaminants = load("MassListData.mat","ContaminantsPos");
                     Contaminants = Contaminants.ContaminantsPos;
                 case "negative"
                     Contaminants = load("MassListData.mat","ContaminantsNeg");
                     Contaminants = Contaminants.ContaminantsNeg;
+                case "both"
+                    Contaminants = load("MassListData.mat","ContaminantsPos","ContaminantsNeg");
+                    Contaminants = unique([Contaminants.ContaminantsPos;Contaminants.ContaminantsNeg]);
             end
             %calculate possible Contaminants
             switch obj.mzTolUnit
@@ -1309,19 +1319,10 @@ classdef RawData
             tempPeakData = obj.RawDataFileObj.PeakDataMS1;
             tempTimeData = obj.RawDataFileObj.TimeDataMS1;
 
-            % transform mz values from M+H+ / M-H- to M
-            switch obj.MSPolarity
-                case "positive"
-                    modifier = - 1.007825;
-                case "negative"
-                    modifier = + 1.007825;
-            end
-
             parfor n = 1:size(tempPeakData,1)
                 idx = tempTimeData{n,1} < StartTime | tempTimeData{n,1} > EndTime;
                 tempPeakData{n,1}(idx)=[];
                 tempTimeData{n,1}(idx)=[];
-                tempPeakData{n,1} = cellfun(@(x) [x(:,1) + modifier,x(:,2)],tempPeakData{n,1},'UniformOutput',false);
             end
             obj.TempDataFileObj.ROICells = tempPeakData;
             obj.TempDataFileObj.TimeCells = tempTimeData;
