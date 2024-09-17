@@ -203,6 +203,8 @@ classdef RawData
                 % when profile data then centroid scans
                 if fileType == "profile"
                     peakTemp = CentroidScans(peakTemp);
+                else
+                    [peakTemp,timeTemp] = DataCleanUp(peakTemp,timeTemp);
                 end
                 %convert from pseudo molecular mass to molecular mass
                 peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n});
@@ -272,6 +274,12 @@ classdef RawData
 
             %remove scans outside RT range
             obj = obj.CutScansToSize;
+            
+             % remove isotopes and adducts
+            if obj.IsotopeFilter == true
+                obj = obj.FilterIsotopesScanStage;
+            end
+
             obj.nScans = cellfun(@numel,obj.TempDataFileObj.TimeCells);
             if obj.MSalign == true
                 obj = obj.AlignScans("batch");
@@ -380,9 +388,9 @@ classdef RawData
             IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
 
             % remove isotopes and adducts
-            if obj.IsotopeFilter == true
-                [IntegrationData,obj] = obj.FilterIsotopes(IntegrationData);
-            end
+            % if obj.IsotopeFilter == true
+            %     [IntegrationData,obj] = obj.FilterIsotopes(IntegrationData);
+            % end
 
             if obj.AdductFilter == true
                 [IntegrationData,obj] = obj.FilterAdducts(IntegrationData);
@@ -980,13 +988,28 @@ classdef RawData
             %   default)
 
             mzTolVal = obj.mzTol;
-            switch obj.MSPolarity
+
+            polarity = app.Data(CurrentTab).RawDataFileObj.polarity;
+            polarity = vertcat(polarity{:});
+            test = strcmp(polarity,"+");
+            if all(test)
+                polarity = "positive";
+            elseif all(~test)
+                polarity = "negative";
+            else
+                polarity = "both";
+            end
+
+            switch polarity
                 case "positive"
                     Rules = load("MassListData.mat","AddPosRules","NLossRules");
                     Rules = [Rules.AddPosRules(obj.AddSelectedPos);Rules.NLossRules([obj.NeutralSelectedSmol;obj.NeutralSelectedCon])];
                 case "negative"
                     Rules = load("MassListData.mat","AddNegRules","NLossRules");
                     Rules = [Rules.AddNegRules(obj.AddSelectedNeg);Rules.NLossRules([obj.NeutralSelectedSmol;obj.NeutralSelectedCon])];
+                case "both"
+                    Rules = load("MassListData.mat","AddNegRules","AddNegRules","NLossRules");
+                    Rules = [Rules.AddPosRules(obj.AddSelectedPos);Rules.AddNegRules(obj.AddSelectedNeg);Rules.NLossRules([obj.NeutralSelectedSmol;obj.NeutralSelectedCon])];
             end
             %Preparation
             minCosSim = obj.CosSim;
@@ -1073,7 +1096,13 @@ classdef RawData
             obj.TempDataFileObj.ROIMat(:,empt) = [];
             obj.TempDataFileObj.ROImzVec(empt) = [];
         end
-
+        function obj = FilterIsotopesScanStage(obj)
+            tempPeakData = obj.TempDataFileObj.ROICells;
+            for n = 1:size(tempPeakData,1)
+                tempPeakData{n,1} = InScanIsotopeFilter(tempPeakData{n,1});
+            end
+            obj.TempDataFileObj.ROICells = tempPeakData;
+        end
         function [valuesFiltered,obj] = FilterIsotopes(obj,IntegrationResults)
             %% IsotopeFilterAlgo Filters Isotope Peaks from Internal AriumMS integration results
             %
@@ -1164,7 +1193,7 @@ classdef RawData
                         EICA = EICA(minFullRange:maxFullRange);
                         EICB = EICB(minFullRange:maxFullRange);
                         %desision Cosine Similarity and mainPeak Intensity
-                        IsotopeIndexCell{k,n}(p)=sum(EICB.*EICA)/(sqrt(sum(EICB.^2))*sqrt(sum(EICA.^2)))>=minCosSim & max(EICA) <= max(EICB);
+                        IsotopeIndexCell{k,n}(p)=sum(EICB.*EICA)/(sqrt(sum(EICB.^2))*sqrt(sum(EICA.^2)))>=minCosSim & max(EICA) < max(EICB);
                     end
                 end
             end
