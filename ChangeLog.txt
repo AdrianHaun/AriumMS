@@ -1,3 +1,7 @@
+1.2.alpha4.3.2: Isotopes are now filtered immediately after the files are loaded, before the ROI search. This reduces the processing time for all subsequent steps.
+                This change removes m/z intensity pairs from the raw data and is no longer comparable with the other feature filters. Therefore, the isotope filter is no longer shown in the rejected features per filter plot.
+                Fixed file info text overwriting old info text on file reselection in some cases.
+
 1.2.alpha4.3.1: Fixed layout for dual polarity Adduct and Neutral loss selection window.
                 Test version for different isotope filter.
 

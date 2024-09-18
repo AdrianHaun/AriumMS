@@ -387,11 +387,7 @@ classdef RawData
             end
             IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
 
-            % remove isotopes and adducts
-            % if obj.IsotopeFilter == true
-            %     [IntegrationData,obj] = obj.FilterIsotopes(IntegrationData);
-            % end
-
+            % remove adducts
             if obj.AdductFilter == true
                 [IntegrationData,obj] = obj.FilterAdducts(IntegrationData);
             end
@@ -1097,116 +1093,15 @@ classdef RawData
             obj.TempDataFileObj.ROImzVec(empt) = [];
         end
         function obj = FilterIsotopesScanStage(obj)
+            tolerance = obj.mzerror;
+            tolUnit = obj.mzErrorUnit;
             tempPeakData = obj.TempDataFileObj.ROICells;
             for n = 1:size(tempPeakData,1)
-                tempPeakData{n,1} = InScanIsotopeFilter(tempPeakData{n,1});
+                tempPeakData{n,1} = InScanIsotopeFilter(tempPeakData{n,1},tolerance,tolUnit);
             end
             obj.TempDataFileObj.ROICells = tempPeakData;
         end
-        function [valuesFiltered,obj] = FilterIsotopes(obj,IntegrationResults)
-            %% IsotopeFilterAlgo Filters Isotope Peaks from Internal AriumMS integration results
-            %
-            %   Calculates possible non Isotope (Base) m/z forch each
-            %   extracted m/z, then finds matching masses in original list.
-            %   Peak lists of Isotope and Base m/z are then compared to
-            %   have peaks with the same RT (within 2 sec). Matching peaks
-            %   shapes are compared using Cosine Similarity (>=0.85), and
-            %   Base m/z intensity adjusted by the relative Isotope
-            %   occurence must be within 10% of the Isotope intensity
-
-            mzTolVal = obj.mzTol;
-            %Preparation
-            minCosSim = obj.CosSim;
-            IsotopeRules = load("MassListData.mat","IsotopeRules");
-            IsotopeRules = IsotopeRules.IsotopeRules;
-            mz = obj.TempDataFileObj.ROImzVec;
-            EICMat = obj.TempDataFileObj.ROIMat;
-            RTs=cellfun(@(X) X(:,2),IntegrationResults(3,:),'UniformOutput',false); %extract Retentiontimes
-            ranges=cellfun(@(X) X(:,2:3),IntegrationResults(2,:),'UniformOutput',false); %extract Peak ranges
-
-            PossibleBaseMZ=mz-IsotopeRules(:,1); %build possible Isotope mass list
-            %find possile BaseMZ values and gather Column index
-            switch obj.mzTolUnit
-                case "ppm"
-                    PossibleBaseMZindex = cell(size(IsotopeRules,1),size(mz,2));
-                    for n=1:size(mz,2)
-                        [~,PossibleBaseMZindex(:,n)]=ismembertol(PossibleBaseMZ(:,n),mz,mzTolVal,'DataScale',mz(n)/10^6,'OutputAllIndices',true);
-                    end
-                case "Da"
-                    [~,PossibleBaseMZindex]=ismembertol(PossibleBaseMZ,mz,mzTolVal,'DataScale',1,'OutputAllIndices',true);
-            end
-
-            %build natural isotope occurence factor list
-            IsotopeOccurenceFactors=cell(size(PossibleBaseMZindex));
-            parfor n=1:size(PossibleBaseMZindex,1)
-                IsotopeOccurenceFactors(n,:)=cellfun(@(X) ones(numel(X),1)*IsotopeRules(n,2), PossibleBaseMZindex(n,:), 'UniformOutput', false);
-            end
-            %%Check For matching Retention time
-            %transform cell array to array
-            rows=max(sum(cellfun(@numel,PossibleBaseMZindex)));
-            idxMat=zeros(rows,length(mz),2);
-            for k=1:length(mz)
-                val=vertcat(PossibleBaseMZindex{:,k});
-                idxMat(1:length(val),k,1)=val;
-                val=vertcat(IsotopeOccurenceFactors{:,k});
-                idxMat(1:length(val),k,2)=val;
-            end
-            %find matching RT indices
-            matchRT=cell(size(idxMat(:,:,1)));
-            for n=1:size(idxMat,2)
-                for k=1:size(idxMat,1)
-                    if idxMat(k,n)~=0
-                        %check RT
-                        [~,matchRT{k,n}]=ismembertol(RTs{n},RTs{idxMat(k,n,1)},1,'DataScale',1);
-                    end
-                end
-            end
-            %remove lists with only zeros
-            check=cellfun(@(X) all(X(:)==0), matchRT);
-            matchRT(check)={[]};
-            check=repmat(check,1,1,2);
-            idxMat(check)=0;
-            %Preallocate storage variable of identified Isotopes variables
-            IsotopeIndexCell = cellfun(@(X) false(size(X(:))), matchRT, 'UniformOutput', false);
-            ColumnIndices = 1:1:size(matchRT,2);
-            notemptyColumns = any(~cellfun(@isempty, matchRT),1);
-            for n=ColumnIndices(notemptyColumns) %Isotope mz loop
-                IsotopeEIC = EICMat(:,n);
-                IsotopeRanges=ranges{1,n};
-                RowIndices=1:1:size(matchRT,1);
-                notEmptyRows = any(~cellfun(@isempty, matchRT(:,n)),2);
-                for k=RowIndices(notEmptyRows) % possible Base mz loop
-                    BaseEIC=EICMat(:,idxMat(k,n,1));    %base m/z EIC
-                    BaseRanges=ranges{1,idxMat(k,n,1)}; %Base m/z peak ranges
-                    CheckList=matchRT{k,n};             %List of Peaks that match Isotope rt
-                    %preallocate variables
-                    MatchIndices=1:1:size(CheckList,1);
-                    notZeroMatch = CheckList ~=0;
-                    for p=MatchIndices(notZeroMatch)   % loop over matching Peaks
-                        RangeA=IsotopeRanges(p,:);
-                        RangeB=BaseRanges(CheckList(p,1),:);
-                        EICA=IsotopeEIC;
-                        EICB=BaseEIC;
-                        %cut vectors to size
-                        minFullRange = min([RangeA;RangeB],[],"all");
-                        maxFullRange = max([RangeA;RangeB],[],"all");
-                        EICA = EICA(minFullRange:maxFullRange);
-                        EICB = EICB(minFullRange:maxFullRange);
-                        %desision Cosine Similarity and mainPeak Intensity
-                        IsotopeIndexCell{k,n}(p)=sum(EICB.*EICA)/(sqrt(sum(EICB.^2))*sqrt(sum(EICA.^2)))>=minCosSim & max(EICA) < max(EICB);
-                    end
-                end
-            end
-            %remove identified Isotopes
-            [valuesFiltered,numRemoved]=obj.Removify(IntegrationResults,IsotopeIndexCell);
-            obj.IsotopeFiltered = numRemoved;
-            %remove Empty columns
-            empt=cellfun(@isempty,valuesFiltered(2,:));
-            valuesFiltered(:,empt)=[];
-            obj.TempDataFileObj.ROIMat(:,empt) = [];
-            obj.TempDataFileObj.ROImzVec(empt) = [];
-        end
-
+        
         function [Output,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
             TimeTolerance = obj.RTTol;
             nFiles = size(obj.nScans,1);
