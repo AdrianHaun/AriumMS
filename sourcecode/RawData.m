@@ -186,6 +186,11 @@ classdef RawData
             CollisionForce=cell(nFiles,1);
             FragMethod=cell(nFiles,1);
             fileType = obj.MSFileType;
+            %check if DataCheck was performed
+            if ~isfield(obj.RawDataFileObj,"polarity")
+                obj = obj.DataCheck;
+            end
+            
             polarities = obj.RawDataFileObj.polarity;
             parfor n=1:nFiles
                 peakTemp = [];

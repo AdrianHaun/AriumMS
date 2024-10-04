@@ -1,3 +1,6 @@
+1.2.alpha4.3.3: Fixed: Display of wrong file (pre 1.2.alpha4.0) infos when importing a project.
+                       Error when plotting EICs but no file check was performed (e.g. when importing project files)
+
 1.2.alpha4.3.2: Isotopes are now filtered immediately after the files are loaded, before the ROI search. This reduces the processing time for all subsequent steps.
                 This change removes m/z intensity pairs from the raw data and is no longer comparable with the other feature filters. Therefore, the isotope filter is no longer shown in the rejected features per filter plot.
                 Fixed file info text overwriting old info text on file reselection in some cases.
