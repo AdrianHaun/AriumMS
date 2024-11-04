@@ -163,6 +163,7 @@ classdef RawData
             obj.RawDataFileObj.PreviewBPCs = BPC;
             obj.RawDataFileObj.PreviewTimes = RetentionTimes;
             obj.RawDataFileObj.polarity = polarityCells;
+            obj.RawDataFileObj.PeakDataMS1 ={[]};
 
             % calculate Scan Frequency [Hz]
             scanFrq = [FileInfo.NumberOfScansMS1]./([FileInfo.EndTime]-[FileInfo.StartTime]);
@@ -538,7 +539,7 @@ classdef RawData
                     end
 
 
-                case "Full"
+                case {"Full","Custom"}
                     if ismember("intThresh",bayesOptions.Properties.VariableNames)
                         obj.thresh = bayesOptions.intThresh;
                     end
