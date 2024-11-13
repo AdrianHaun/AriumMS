@@ -1,4 +1,4 @@
-classdef LCData < RawData
+classdef CEData < RawData
     % Class for storing group settings and performing functions from Raw
     % data until Feature data stage
     properties
@@ -6,7 +6,7 @@ classdef LCData < RawData
     end
 
     methods
-        function obj = LCData(val)
+        function obj = CEData(val)
             if nargin == 0
                 val = 0;
             end

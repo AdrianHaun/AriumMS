@@ -3,7 +3,6 @@ classdef RawData
     % data until Feature data stage
     properties
         %% Processing Parameters
-        GroupName           (1,1) string
         FileNames           (:,1) string
         Files               (:,1) string
         BlankFiles          (:,1) string
@@ -110,9 +109,8 @@ classdef RawData
     end
 
     methods
-        function obj = RawData(GroupCounter)
+        function obj = RawData
             %Construct an instance of this class
-            obj.GroupName = "Group " + GroupCounter;
             obj.RawDataFile = tempname +".mat";
             obj.RawDataFileObj = matfile(obj.RawDataFile,Writable=true);
 
@@ -878,9 +876,15 @@ classdef RawData
             end
         end
 
-        function IntResults = CWTIntegrate(obj,Index)
-            Mat = obj.TempDataFileObj.ROIMat;
-            Mat = Mat(:,Index);
+        function IntResults = CWTIntegrate(obj,varargin)
+            if isscalar(varargin)
+                Index = varargin{1};
+                Mat = obj.TempDataFileObj.ROIMat;
+                Mat = Mat(:,Index);
+            else
+                Mat = sum(obj.TempDataFileObj.ROIMat,2);
+            end
+
             minSN = obj.minSignalNoise;
 
             % prepare wavelet filter-bank
