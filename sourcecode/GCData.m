@@ -2,17 +2,30 @@ classdef GCData < RawData
     % Class for storing group settings and performing functions from Raw
     % data until Feature data stage
     properties
-
+        GroupName (1,1) string
+        SeparationType (1,1) string = "GC"
     end
 
     methods
-        function obj = GCData(CallingData)
+        function obj = GCData(groupNumber)
             %Construct an instance of this class
-            obj@RawData(CallingData)
+             if nargin == 0
+                groupNumber = 0;
+            end
+            obj = obj@RawData;
+            obj.GroupName = "Group " + groupNumber;
+            % set default parameters
+            obj.mzerror = 0.1;
+            obj.mzErrorUnit = "Da";
+            obj.minroi = 10;
+            obj.minWidth = 0.8;
+            obj.maxWidth = 10;
+            obj.mzTol = 0.05;
+            obj.mzTolUnit = "Da";
         end
 
 
-        function obj = ReadData(obj,DataLoc)
+        function obj = ReadData(obj,DataLoc,~)
             nFiles = size(DataLoc,1);
             %preallocation
             Peaks=cell(nFiles,1);
@@ -51,7 +64,7 @@ classdef GCData < RawData
             if isfile(obj.ROIDataFile)
                 delete(obj.ROIDataFile)
             end
-
+            % check for OptimizationMode
             if numel(varargin) == 2
                 mode = varargin{1};
                 bayesOptions = varargin{2};
@@ -223,7 +236,7 @@ classdef GCData < RawData
         function IntResults = IntegrateGC(obj)
 
             %prepare TIC Data
-            tics = obj.TempDataFileObj.ROIMat;
+            tics = sum(obj.TempDataFileObj.ROIMat,2);
             %tics = mat2cell(tics,obj.nScansPadded);
             times = obj.TempDataFileObj.timeVec;
             %gather parameters

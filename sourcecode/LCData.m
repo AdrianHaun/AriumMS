@@ -3,15 +3,17 @@ classdef LCData < RawData
     % data until Feature data stage
     properties
         GroupName (1,1) string
+        SeparationType (1,1) string = "LC"
     end
 
     methods
-        function obj = LCData(val)
-            if nargin == 0
-                val = 0;
+        function obj = LCData(groupNumber)
+            %Construct an instance of this class
+             if nargin == 0
+                groupNumber = 0;
             end
             obj = obj@RawData;
-            obj.GroupName = "Group " + val;
+            obj.GroupName = "Group " + groupNumber;
         end
 
         function obj = ReadData(obj,DataLoc,Level)
@@ -29,7 +31,7 @@ classdef LCData < RawData
             end
             
             polarities = obj.RawDataFileObj.polarity;
-            parfor n=1:nFiles
+            for n=1:nFiles
                 peakTemp = [];
                 timeTemp = [];
                 %filetype check
@@ -41,7 +43,11 @@ classdef LCData < RawData
                     case "mzXML"
                         [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
                 end
-                
+                %remove possible empty scans
+                emptyScans = cellfun(@isempty, peakTemp);
+                peakTemp(emptyScans) = [];
+                timeTemp(emptyScans) = [];
+                polarities{n}(emptyScans) = [];
                 % when profile data then centroid scans
                 if fileType == "profile"
                     peakTemp = CentroidScans(peakTemp);

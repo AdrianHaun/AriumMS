@@ -18,5 +18,8 @@ idx = polarities == "+";
 modifier(idx) = modifier(idx)*-1;
 
 parfor n = 1:height(Scans)
+    if isempty(Scans{n,1})
+        continue
+    end
     Scans{n,1} = [Scans{n,1}(:,1) + modifier(n),Scans{n,1}(:,2)];
 end

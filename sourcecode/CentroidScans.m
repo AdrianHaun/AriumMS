@@ -3,6 +3,9 @@ function CentroidedScans = CentroidScans(ScanData)
 CentroidedScans = cell(size(ScanData));
 parfor n = 1:height(CentroidedScans)
     Scan = ScanData{n,1};
+    if isempty(Scan)
+        continue
+    end
     [~,edges] = histcounts(Scan(:,2));
     idx = Scan(:,2) <= edges(2)/2;
     Scan(idx,2) = 0;

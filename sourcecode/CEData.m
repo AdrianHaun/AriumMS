@@ -3,15 +3,16 @@ classdef CEData < RawData
     % data until Feature data stage
     properties
         GroupName (1,1) string
+        SeparationType (1,1) string = "CE"
     end
 
     methods
-        function obj = CEData(val)
+        function obj = CEData(groupNumber)
             if nargin == 0
-                val = 0;
+                groupNumber = 0;
             end
             obj = obj@RawData;
-            obj.GroupName = "Group " + val;
+            obj.GroupName = "Group " + groupNumber;
         end
 
         function obj = ReadData(obj,DataLoc,Level)
