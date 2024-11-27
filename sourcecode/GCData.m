@@ -4,6 +4,7 @@ classdef GCData < RawData
     properties
         GroupName (1,1) string
         SeparationType (1,1) string = "GC"
+        EISpectra (:,1) cell
     end
 
     methods
@@ -206,8 +207,8 @@ classdef GCData < RawData
             IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
 
             % Build Storage Arrays and filter by number of occurences
-            [Output,obj] = obj.BuildStorageArrays(IntegrationData);
-
+            [Output,Spectra,obj] = obj.BuildStorageArrays(IntegrationData);
+            obj.EISpectra = Spectra;
             %check for empty Output
             if isempty(Output.FeatIdentifiers)
                 Output.FeatIdentifiers(1,1:2) = 0;
@@ -300,7 +301,7 @@ classdef GCData < RawData
             IntResults{10,1} = MolecularMass;
         end
 
-        function [Output,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
+        function [Output,Spectra,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
             TimeTolerance = obj.RTTol;
             nFiles = size(obj.nScans,1);
             if isscalar(varargin)
@@ -313,8 +314,15 @@ classdef GCData < RawData
                 minDataPoints = ceil(nFiles*minOcc);
                 isISIntegration = false;
             end
+            % split Integration results into samples
+            % index = IntegrationResults{3,1}(:,3);
+            % for n = 1:max(index)
+            %     id = index == n;
+            % 
+            % end
 
             % Gather Data
+            Spectra = IntegrationResults{6,1};
 
             RTAssign = cellfun(@(x) x(:,2:3),IntegrationResults(3,:),'UniformOutput',false);
             switch obj.EvaluationParameter
@@ -339,8 +347,8 @@ classdef GCData < RawData
             entropyAndSN = IntegrationResults(4,:);
             XICvec = IntegrationResults(5,:);
 
-            parfor n=1:size(RTAssign,2)
-                localIntensity = intensities{n}(:,1)
+            for n=1:size(RTAssign,2)
+                localIntensity = intensities{n}(:,1);
                 localLowerBorder = lowerBorders{n}(:,2);
                 localUpperBorder = upperBorders{n}(:,3);
                 localEntropy = entropyAndSN{n}(:,1);
@@ -361,11 +369,12 @@ classdef GCData < RawData
                 UpperBordersMat = zeros(length(UniqueTimes),nFiles);
                 EntropyMat = zeros(length(UniqueTimes),nFiles);
                 SNMat = zeros(length(UniqueTimes),nFiles);
-                mzValue = repmat(mzVector(n),length(UniqueTimes),1);
+                mzValue = zeros(length(UniqueTimes),1);
                 % uniqueRT loop
 
                 for numRTs = 1:length(UniqueTimes)
                     AvgTimeVec(numRTs) = mean(Times(IndexToUnique{numRTs}));
+                    mzValue(numRTs) = max(mzVector(IndexToUnique{numRTs}));
                     IntMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localIntensity(IndexToUnique{numRTs});
                     TimesMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = Times(IndexToUnique{numRTs});
                     LowerBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localLowerBorder(IndexToUnique{numRTs});
@@ -397,7 +406,7 @@ classdef GCData < RawData
             Output.RetentionTimeStorage = Output.RetentionTimeStorage(idx,:);
             Output.EntropyStorage = Output.EntropyStorage(idx,:);
             Output.Signal2NoiseStorage = Output.Signal2NoiseStorage(idx,:);
-
+            Spectra = Spectra(idx,:);
             %occurenceFilter
             idx = sum(Output.IntensityStorage ~= 0,2)<minDataPoints;
             Output.IntensityStorage(idx,:) = [];
@@ -406,8 +415,10 @@ classdef GCData < RawData
             Output.RetentionTimeStorage(idx,:) = [];
             Output.EntropyStorage(idx,:) = [];
             Output.Signal2NoiseStorage(idx,:) = [];
+            Spectra(idx,:) = [];
+
              if isISIntegration == false
-                obj.OccurenceFiltered = Removed + sum(idx);
+                obj.OccurenceFiltered = sum(idx);
             end
             
         end
