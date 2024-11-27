@@ -41,13 +41,24 @@ for i = 0:spectrumNodes.getLength - 1
     spectrumElement = spectrumNodes.item(i);
     % Extract msLevel and retentionTime attributes from the scan element
     ScanInfos = spectrumElement.getElementsByTagName('cvParam');
-    msLevels(i+1) = str2double(ScanInfos.item(1).getAttribute('value'));
-    polarity(i+1) = string(ScanInfos.item(2).getAttribute('name'));
-    BPC(i+1) = str2double(ScanInfos.item(5).getAttribute('value'));
-    TIC(i+1) = str2double(ScanInfos.item(6).getAttribute('value'));
-    scanElement = spectrumElement.getElementsByTagName('scan');
-    scanElement = scanElement.item(0).getElementsByTagName('cvParam');
-    RetentionTimes(i+1) = str2double(scanElement.item(0).getAttribute('value'));
+    for item = 0:ScanInfos.getLength -1
+        attribute = string(ScanInfos.item(item).getAttribute('name'));
+        switch attribute
+            case "ms level"
+                msLevels(i+1) = str2double(ScanInfos.item(item).getAttribute('value'));
+            case {"positive scan","negative scan"}
+                polarity(i+1) = attribute;
+            case "base peak intensity"
+                BPC(i+1) = str2double(ScanInfos.item(item).getAttribute('value'));
+            case "total ion current"
+                TIC(i+1) = str2double(ScanInfos.item(item).getAttribute('value'));
+            otherwise
+                continue
+        end
+            scanElement = spectrumElement.getElementsByTagName('scan');
+            scanElement = scanElement.item(0).getElementsByTagName('cvParam');
+            RetentionTimes(i+1) = str2double(scanElement.item(0).getAttribute('value'));
+    end
 end
 % convert retentionTimes to seconds
 switch retentionTimeUnit

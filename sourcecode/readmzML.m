@@ -97,7 +97,15 @@ for i = 0:spectrumNodes.getLength - 1
     spectrumElement = spectrumNodes.item(i);
     % Extract msLevel and retentionTime attributes from the scan element
     ScanInfos = spectrumElement.getElementsByTagName('cvParam');
-    msLevels(i+1) = str2double(ScanInfos.item(1).getAttribute('value'));
+    % find ms level value
+    maxCount = ScanInfos.getLength-1;
+    counter = 0;
+    item = "";
+    while item ~= "ms level" && counter <= maxCount
+        item = string(ScanInfos.item(counter).getAttribute('name'));
+        counter = counter + 1;
+    end
+    msLevels(i+1) = str2double(ScanInfos.item(counter-1).getAttribute('value'));
     if msLevels(i+1) ~= options.MSLevel
         continue
     else
