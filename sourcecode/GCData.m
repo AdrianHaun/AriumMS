@@ -208,7 +208,10 @@ classdef GCData < RawData
 
             % Build Storage Arrays and filter by number of occurences
             [Output,Spectra,obj] = obj.BuildStorageArrays(IntegrationData);
-            obj.EISpectra = Spectra;
+
+            %build average EIspectra
+            obj = obj.FinalizeEISpectra(Spectra);
+
             %check for empty Output
             if isempty(Output.FeatIdentifiers)
                 Output.FeatIdentifiers(1,1:2) = 0;
@@ -304,25 +307,20 @@ classdef GCData < RawData
         function [Output,Spectra,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
             TimeTolerance = obj.RTTol;
             nFiles = size(obj.nScans,1);
+            [IntegrationResults,mzVector] = MassSortPeaks(IntegrationResults);
+
             if isscalar(varargin)
                 mzVector = varargin{1};
                 minDataPoints = nFiles;
                 isISIntegration = true;
             else
-                mzVector = IntegrationResults{7,1};
                 minOcc = obj.minOccurence;
                 minDataPoints = ceil(nFiles*minOcc);
                 isISIntegration = false;
             end
-            % split Integration results into samples
-            % index = IntegrationResults{3,1}(:,3);
-            % for n = 1:max(index)
-            %     id = index == n;
-            % 
-            % end
-
+            
             % Gather Data
-            Spectra = IntegrationResults{6,1};
+            Spectra = IntegrationResults(6,:)';
 
             RTAssign = cellfun(@(x) x(:,2:3),IntegrationResults(3,:),'UniformOutput',false);
             switch obj.EvaluationParameter
@@ -330,6 +328,21 @@ classdef GCData < RawData
                     HeightOrArea = 1;
                 case "Area"
                     HeightOrArea = 2;
+            end
+
+           nPeaks = cellfun(@(x) size(x,1),RTAssign);
+            % remove cells with less peaks than required minimum
+            idx = nPeaks<minDataPoints;
+
+            %sum number of removed peaks
+            Removed = sum(nPeaks(idx),"all");
+            % remove cells with fever then required peaks
+            RTAssign(idx)=[];
+            IntegrationResults(:,idx)=[];
+            mzVector(:,idx)=[];
+            if isISIntegration == false
+                obj.TempDataFileObj.ROImzVec(:,idx) = [];
+                obj.TempDataFileObj.ROIMat(:,idx) = [];
             end
 
             % preallocate Storage CellArrays
@@ -347,8 +360,8 @@ classdef GCData < RawData
             entropyAndSN = IntegrationResults(4,:);
             XICvec = IntegrationResults(5,:);
 
-            for n=1:size(RTAssign,2)
-                localIntensity = intensities{n}(:,1);
+            parfor n=1:size(RTAssign,2)
+                localIntensity = intensities{n}(:,1)
                 localLowerBorder = lowerBorders{n}(:,2);
                 localUpperBorder = upperBorders{n}(:,3);
                 localEntropy = entropyAndSN{n}(:,1);
@@ -369,12 +382,11 @@ classdef GCData < RawData
                 UpperBordersMat = zeros(length(UniqueTimes),nFiles);
                 EntropyMat = zeros(length(UniqueTimes),nFiles);
                 SNMat = zeros(length(UniqueTimes),nFiles);
-                mzValue = zeros(length(UniqueTimes),1);
+                mzValue = repmat(mzVector(n),length(UniqueTimes),1);
                 % uniqueRT loop
 
                 for numRTs = 1:length(UniqueTimes)
                     AvgTimeVec(numRTs) = mean(Times(IndexToUnique{numRTs}));
-                    mzValue(numRTs) = max(mzVector(IndexToUnique{numRTs}));
                     IntMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localIntensity(IndexToUnique{numRTs});
                     TimesMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = Times(IndexToUnique{numRTs});
                     LowerBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localLowerBorder(IndexToUnique{numRTs});
@@ -406,7 +418,7 @@ classdef GCData < RawData
             Output.RetentionTimeStorage = Output.RetentionTimeStorage(idx,:);
             Output.EntropyStorage = Output.EntropyStorage(idx,:);
             Output.Signal2NoiseStorage = Output.Signal2NoiseStorage(idx,:);
-            Spectra = Spectra(idx,:);
+
             %occurenceFilter
             idx = sum(Output.IntensityStorage ~= 0,2)<minDataPoints;
             Output.IntensityStorage(idx,:) = [];
@@ -415,12 +427,56 @@ classdef GCData < RawData
             Output.RetentionTimeStorage(idx,:) = [];
             Output.EntropyStorage(idx,:) = [];
             Output.Signal2NoiseStorage(idx,:) = [];
-            Spectra(idx,:) = [];
-
              if isISIntegration == false
-                obj.OccurenceFiltered = sum(idx);
+                obj.OccurenceFiltered = Removed + sum(idx);
             end
             
+            %local function
+            function [OutArray,mzvector] = MassSortPeaks(InArray)
+                %get all unique masses
+                mzvector = unique(InArray{7,1})';
+                TIC = InArray{5,1};
+                InArray(5) = [];
+                %preallocate output
+                OutArray = cell(5,numel(mzvector));
+
+                parfor massID = 1:numel(mzvector)
+                    id = InArray{6,1} == mzvector(massID);
+                    for rowID = 1:5
+                        OutArray{rowID,massID} = InArray{rowID,1}(id,:);
+                    end
+                end
+                %rearrange Output rows to match Input 
+                OutArray = [OutArray(1:4,:);repmat({TIC},1,numel(mzvector));OutArray(5,:)];
+
+            end
+        end
+
+        function obj = FinalizeEISpectra(obj,SpectraCells)
+            
+            output = cell(size(SpectraCells));
+            
+            error = obj.mzerror;
+            errorUnit = obj.mzErrorUnit;
+
+            parfor n = 1:numel(SpectraCells)
+                if isscalar(SpectraCells{n,1})
+                    output(n,1) = SpectraCells{n,1};
+                else
+                    %use ROI to sort values
+                    %synthetic timevector
+                    times = 1:1:numel(SpectraCells{n,1});
+                    [mzroi,MSroi,~] = ROIpeaks3(SpectraCells{n,1},0,error,errorUnit,1,times);
+                    %calculate average spectrum
+                    MSroi = mean(MSroi);
+                    %rescale
+                    MSroi = MSroi./max(MSroi,[],"all");
+                    %reorder output
+                    output{n,1} = [mzroi;MSroi]';
+                end
+            end
+
+            obj.EISpectra = output;
         end
     end
 end
