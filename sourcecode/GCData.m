@@ -210,17 +210,14 @@ classdef GCData < RawData
             [Output,Spectra,obj] = obj.BuildStorageArrays(IntegrationData);
 
             %build average EIspectra
-            obj = obj.FinalizeEISpectra(Spectra);
+            Output.MS2 = obj.FinalizeEISpectra(Spectra);
 
             %check for empty Output
-            if isempty(Output.FeatIdentifiers)
-                Output.FeatIdentifiers(1,1:2) = 0;
+            if isempty(Output.FeatID)
+                Output.FeatID(1,1:2) = 0;
             end
-            Output.FeatIdentifiers(:,2) = round(Output.FeatIdentifiers(:,2),1);
             Output = obj.GroupAndSampleScaling(Output);
-            Output.DataSize = size(Output.IntensityStorage,1);
-            Output.FoundInGroup = repmat(obj.GroupName,size(Output.FeatIdentifiers,1),1);
-            Output.SampleNames = obj.FileNames;
+            
             obj.Output = Output;
             if ~exist("mode","var") %save results if batch mode
                 %build ResultDataFile
@@ -262,8 +259,16 @@ classdef GCData < RawData
             upperBorders = ceil(peakLoc+peakWidth/2);
             peaks = [peakLoc,lowerBorders,upperBorders];
             peaks = CWTBorderCorrection(peaks,currentTIC,smoothedTIC);
-            [peaks,tempStorage] = FilterPeaks(peaks,MinPWDataPoints,MaxPWDataPoints,minSN,noise,currentTIC);
-            IntResults = FinalizeIntegrationOutput(peaks,tempStorage,currentTIC,currentTime);
+            IntResults = struct("Mass",[],"peakLocation",[],"peakStartLocation",[],"peakEndLocation",[],"peakHeight",[],"peakArea",[],"Entropy",[],"SN",[],"minWidthFiltered",[],"maxWidthFiltered",[],"EntropyFiltered",[],"SNFiltered",[]);
+            IntResults.peakLocation = peaks(:,1);
+            IntResults.peakStartLocation = peaks(:,2);
+            IntResults.peakEndLocation = peaks(:,3);
+            IntResults.peakHeight = peaks(:,4);
+            peaks = [];
+            IntResults = FilterPeaks(IntResults,MinPWDataPoints,MaxPWDataPoints,minSN,noise,currentTIC);
+            % entropy calculation
+            IntResults.Entropy = CalculatePeakEntropy(IntResults,full(EIC));
+            IntResults = FinalizeIntegrationOutput(IntResults,currentTIC,currentTime);
             IntResults = obj.GatherEISpectra(IntResults);
         end
 
@@ -305,6 +310,8 @@ classdef GCData < RawData
         end
 
         function [Output,Spectra,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
+            %preallocate Output struct
+            Output = struct("FeatID",[],"Mass_measured",[],"Mass_corrected",[],"RT",[],"Formula",[],"Intensities",[],"RetentionTimes",[],"Signal2Noise",[],"Entropy",[],"XIC",[],"MS2",[],"GroupName",[],"FileNames",[],"DataSize",[]);
             TimeTolerance = obj.RTTol;
             nFiles = size(obj.nScans,1);
             [IntegrationResults,mzVector] = MassSortPeaks(IntegrationResults);
@@ -405,32 +412,40 @@ classdef GCData < RawData
                 SNStorage{n} = SNMat;
             end
             Output.GroupName = obj.GroupName;
-            Output.FeatIdentifiers = vertcat(FeatId{:});
+            FeatId =  vertcat(FeatId{:});
+            Output.Mass_measured =  FeatId(:,1);
+            Output.RT = round(FeatId(:,2),1);
             Output.XIC = vertcat(XIC{:});
-            Output.IntensityStorage = vertcat(IntStorage{:});
-            Output.RetentionTimeStorage = vertcat(RTStorage{:});
-            Output.EntropyStorage = vertcat(Entropy_Storage{:});
-            Output.Signal2NoiseStorage = vertcat(SNStorage{:});
+            Output.Intensities = vertcat(IntStorage{:});
+            Output.RetentionTimes = vertcat(RTStorage{:});
+            Output.Entropy = vertcat(Entropy_Storage{:});
+            Output.Signal2Noise = vertcat(SNStorage{:});
             % duplicate row filter
-            [Output.FeatIdentifiers,idx] = unique(Output.FeatIdentifiers,'rows','stable');
-            Output.IntensityStorage = Output.IntensityStorage(idx,:);
+            [~,idx] = unique(FeatId,'rows','stable');
+            Output.Mass_measured = Output.Mass_measured(idx,:);
+            Output.RT = Output.RT(idx,:);
+            Output.Intensities = Output.Intensities(idx,:);
             Output.XIC = Output.XIC(idx,:);
-            Output.RetentionTimeStorage = Output.RetentionTimeStorage(idx,:);
-            Output.EntropyStorage = Output.EntropyStorage(idx,:);
-            Output.Signal2NoiseStorage = Output.Signal2NoiseStorage(idx,:);
+            Output.RetentionTimes = Output.RetentionTimes(idx,:);
+            Output.Entropy = Output.Entropy(idx,:);
+            Output.Signal2Noise = Output.Signal2Noise(idx,:);
 
             %occurenceFilter
-            idx = sum(Output.IntensityStorage ~= 0,2)<minDataPoints;
-            Output.IntensityStorage(idx,:) = [];
-            Output.FeatIdentifiers(idx,:) = [];
+            idx = sum(Output.Intensities ~= 0,2)<minDataPoints;
+            Output.Intensities(idx,:) = [];
             Output.XIC(idx,:) = [];
-            Output.RetentionTimeStorage(idx,:) = [];
-            Output.EntropyStorage(idx,:) = [];
-            Output.Signal2NoiseStorage(idx,:) = [];
+            Output.RetentionTimes(idx,:) = [];
+            Output.Entropy(idx,:) = [];
+            Output.Signal2Noise(idx,:) = [];
              if isISIntegration == false
                 obj.OccurenceFiltered = Removed + sum(idx);
             end
-            
+            %build FeatID string
+            Output.FeatID = obj.GroupName + "_" + [1:1:height(Output.Mass_measured)]';
+            %add additional data
+            Output.DataSize = size(Output.Intensities,1);
+            Output.FileNames = obj.FileNames;
+
             %local function
             function [OutArray,mzvector] = MassSortPeaks(InArray)
                 %get all unique masses
@@ -452,7 +467,7 @@ classdef GCData < RawData
             end
         end
 
-        function obj = FinalizeEISpectra(obj,SpectraCells)
+        function output = FinalizeEISpectra(obj,SpectraCells)
             
             output = cell(size(SpectraCells));
             
@@ -475,8 +490,7 @@ classdef GCData < RawData
                     output{n,1} = [mzroi;MSroi]';
                 end
             end
-
-            obj.EISpectra = output;
         end
+
     end
 end

@@ -1,53 +1,52 @@
-function [peaks,tempStorage] = FilterPeaks(peaks,MinPWDataPoints,MaxPWDataPoints,maxSN,Noise,EIC)
+function IntResults = FilterPeaks(IntResults,MinPWDataPoints,MaxPWDataPoints,maxSN,Noise,EIC)
 % Filters identified peaks from AutoCWT
-                tempStorage = cell(8,1);
-                %% Peak filter
-                %remove peaks with wrong boundaries
-                if isempty(peaks)==false
-                    idx=peaks(:,2)>=peaks(:,3);
-                    peaks(idx,:)=[];
-                end
-                %remove duplicate peaks
-                if isempty(peaks)==false
-                    peaks=unique(peaks,'rows');
-                end
-                %remove peaks with height = 0
-                if isempty(peaks)==false
-                    idx=peaks(:,4)==0;
-                    peaks(idx,:)=[];
-                end
-                %remove peaks with bad Peak asymmetry
-                if isempty(peaks)==false
-                    idx= (peaks(:,3)-peaks(:,1))./(peaks(:,1)-peaks(:,2));
-                    idx = idx<0.3 | idx>3;
-                    peaks(idx,:)=[];
-                end
-                %less than minimum peak width
-                if isempty(peaks)==false
-                    idx=peaks(:,3)-peaks(:,2)<MinPWDataPoints;
-                    peaks(idx,:)=[];
-                    tempStorage{5,1}=sum(idx);
-                end
-                %more than maximum peak width
-                if isempty(peaks)==false
-                    idx=peaks(:,3)-peaks(:,2)>MaxPWDataPoints;
-                    peaks(idx,:)=[];
-                    tempStorage{6,1}=sum(idx);
-                end
-                %S/N peak rejection
-                SN=zeros(size(peaks,1),1);
-                if isempty(peaks)==false
-                    SN=peaks(:,4)./Noise;
-                    idx=SN<maxSN;
-                    peaks(idx,:)=[];
-                    SN(idx,:)=[];
-                    tempStorage{7,1}=sum(idx);
-                end
-                % entropy calculation
-                 if isempty(peaks)==false
-                    Entropy = CalculatePeakEntropy(peaks,full(EIC));
-                 else
-                    Entropy = zeros(length(SN),1);
-                 end
-                tempStorage{4,1}=[Entropy,SN];
-    end
+%check empty input
+if isempty(IntResults.peakLocation)
+    return
+end
+%preallocate indexarray
+idx = false(size(IntResults.peakLocation));
+
+%% Peak filter
+%remove duplicate peaks
+[~,id] = unique([IntResults.peakLocation,IntResults.peakStartLocation,IntResults.peakEndLocation,IntResults.peakHeight,],'rows');
+idx = idx | id;
+
+%remove peaks with wrong boundaries
+id = IntResults.peakStartLocation>=IntResults.peakEndLocation;
+idx = idx | id;
+
+%remove peaks with height = 0
+id = IntResults.peakHeight == 0;
+idx = idx | id;
+
+%remove peaks with bad Peak asymmetry
+
+symmetry = (IntResults.peakEndLocation - IntResults.peakLocation)./(IntResults.peakLocation - IntResults.peakStartLocation);
+id = symmetry<0.3 | symmetry>3;
+idx = idx | id;
+
+%less than minimum peak width
+id = IntResults.peakEndLocation-IntResults.peakStartLocation < MinPWDataPoints;
+IntResults.minWidthFilteres=sum(id);
+idx = idx | id;
+
+%more than maximum peak width
+id=IntResults.peakEndLocation - IntResults.peakStartLocation > MaxPWDataPoints;
+IntResults.maxWidthFilteres=sum(id);
+idx = idx | id;
+
+%S/N peak rejection
+IntResults.SN = IntResults.PeakHeight ./ Noise;
+id=SN<maxSN;
+IntResults.SNFiltered = sum(id);
+idx = idx | id;
+
+% remove identified peaks
+IntResults.peakLocation(idx) = [];
+IntResults.peakStartLocation(idx) = [];
+IntResults.peakEndLocation(idx) = [];
+IntResults.peakHeight(idx) = [];
+IntResults.SN(idx) = [];
+
+end
