@@ -231,197 +231,6 @@ classdef RawData
         end
 
         %% Data Processing
-        function [Output,obj]=BatchProcess(obj,varargin)
-            %check if old results exist and delete them
-            if isfile(obj.ROIDataFile)
-                delete(obj.ROIDataFile)
-            end
-
-            if numel(varargin) == 2
-                mode = varargin{1};
-                bayesOptions = varargin{2};
-                obj = obj.SetOptimizationOptions(mode,bayesOptions);
-            elseif isscalar(varargin)
-                error("Wrong number of inputs")
-            end
-
-            nFiles = size(obj.Files,1);
-            FileLocs = obj.Files;
-            nData = nFiles;
-            if obj.BLKSubtraction == true
-                nBLK = size(obj.BlankFiles,1);
-                nData = nFiles+nBLK;
-                FileLocs=[FileLocs;obj.BlankFiles];
-            end
-            %remove possible empty
-            id=cellfun(@isempty,FileLocs);
-            FileLocs(id)=[];
-            nData = nData-sum(id);
-
-            %check if files already loaded then skip loading stage
-            test = obj.RawDataFileObj.PeakDataMS1(1,1);
-            if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= size(obj.RawDataFileObj.PeakDataMS1,1)
-                obj = obj.ReadData(FileLocs,1);
-            end
-            clearvars test FileLocs id
-
-            %build TempDataFile
-            obj.TempDataFile = tempname +".mat";
-            obj.TempDataFileObj = matfile(obj.TempDataFile,Writable=true);
-            %predefine Variables in .mat file
-            obj.TempDataFileObj.ROICells  = {[]};
-            obj.TempDataFileObj.TimeCells  = {[]};
-            obj.TempDataFileObj.ROIMat = [];
-            obj.TempDataFileObj.ROIMatBLK  = [];
-            obj.TempDataFileObj.ROImzVec = [];
-            obj.TempDataFileObj.timeVec  = [];
-
-            %remove scans outside RT range
-            obj = obj.CutScansToSize;
-            
-             % remove isotopes and adducts
-            if obj.IsotopeFilter == true
-                obj = obj.FilterIsotopesScanStage;
-            end
-
-            obj.nScans = cellfun(@numel,obj.TempDataFileObj.TimeCells);
-            if obj.MSalign == true
-                obj = obj.AlignScans("batch");
-            end
-
-            % ROI Search
-            obj = obj.AutoROI("batch");
-
-            % Average BLK
-            if obj.BLKSubtraction == true && nBLK > 1
-                obj = obj.AverageBLK(nBLK);
-                nData = size(obj.TempDataFileObj.ROICells,1); % update number of matrices
-            end
-            if obj.ContaminantFilter == true
-                obj = obj.removeContaminants;
-            end
-
-            % Baseline Correction
-            if obj.BaseCorr == true
-                obj = obj.CorrectBaseline("batch");
-            end
-            % Smoothing
-            if obj.Smoothing == true
-                obj = obj.SmoothPeaks("batch");
-            end
-
-            % Peak Align
-            if obj.Peakalign == true && nData > 1
-                obj = obj.AlignPeaks("batch");
-            end
-
-            if obj.BLKSubtraction == true % Separate Blank data from Sample data
-                tempBLK = obj.TempDataFileObj.ROICells(end,1);
-                obj.TempDataFileObj.ROIMatBLK=sparse(tempBLK{:});
-                obj.TempDataFileObj.ROICells(end)=[];
-                obj.TempDataFileObj.TimeCells(end)=[];
-            end
-
-            % subtract blank before IS normalization
-            if obj.BLKSubtraction == true && obj.ISOrder == "BlankIS"
-                peakCells = obj.TempDataFileObj.ROICells;
-                BLKMat = obj.TempDataFileObj.ROIMatBLK;
-                parfor id=1:size(peakCells,1)
-                    peakCells{id,1}=peakCells{id,1}-BLKMat;
-                    % set possible negative values to 0
-                    peakCells{id,1} = max(peakCells{id,1},0);
-                end
-                obj.TempDataFileObj.ROICells = peakCells;
-            end
-            % pad arrays with Maximum peak width*3 Scans to eliminate
-            % integration interference between matrices
-            obj = obj.FinalizeROI;
-
-            clearvars -except obj
-            %% Integration Stage
-            % Find and Integrate IS separate
-            if obj.ISTDCorr == true
-                obj = obj.IntegrateIS;
-                if ~isempty(obj.ISValue)
-                    obj = obj.ISNormalize;
-                end
-            end
-            % BLK Subtraction after IS Correction
-            if obj.BLKSubtraction == true && obj.ISOrder == "ISBlank"
-                MSroi = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScansPadded);
-                MatBLK = obj.TempDataFileObj.ROIMatBLK;
-                parfor id=1:size(MSroi,1)
-                    MSroi{id,1}=MSroi{id,1}-padarray(MatBLK,size(MSroi{id,1},1)-size(MatBLK,1),0,'post');
-                end
-                MSroi = vertcat(MSroi{:});
-                MSroi = max(MSroi,0);
-                id = all(MSroi >= obj.thresh,1);
-                obj.TempDataFileObj.ROIMat = MSroi(:,id);
-                obj.TempDataFileObj.ROImzVec(:,~id) = [];
-            end
-            % mass correction
-            if obj.MassCal == true && ~isempty(obj.ISValue)
-                obj = obj.ISMassCorrection;
-            end
-
-            % Integrate all Peaks
-            IDX = true(1,size(obj.TempDataFileObj.ROIMat,2));
-            IntegrationData = obj.CWTIntegrate(IDX);
-            %Calculate number of removed features
-            obj.MinWidthFiltered = sum(vertcat(IntegrationData{5,:}),"all");
-            obj.MaxWidthFiltered = sum(vertcat(IntegrationData{6,:}),"all");
-            obj.SNFiltered = sum(vertcat(IntegrationData{7,:}),"all");
-            IntegrationData(5:7,:) = [];
-            % remove ROI masses with no found peaks
-            IDX=cellfun(@isempty,IntegrationData(4,:));
-            IntegrationData(:,IDX)=[];
-            obj.TempDataFileObj.ROImzVec(IDX)=[];
-            obj.TempDataFileObj.ROIMat(:,IDX)=[];
-            % calculate median entropy
-            mEntropy=vertcat(IntegrationData{4,:});
-            if ~isempty(mEntropy)
-                mEntropy(:,2)=[];
-            end
-            obj.MedianEntropy=median(mEntropy,'omitnan');
-            % Apply Entropy filter
-            if obj.entropyFilter == true
-                [IntegrationData,obj.EntropyFiltered,EmptyColumns] = obj.FilterbyEntropy(IntegrationData,obj.MedianEntropy);
-                obj.TempDataFileObj.ROIMat(:,EmptyColumns)=[];
-                obj.TempDataFileObj.ROImzVec(EmptyColumns)=[];
-            end
-            IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
-
-            % remove adducts
-            if obj.AdductFilter == true
-                [IntegrationData,obj] = obj.FilterAdducts(IntegrationData);
-            end
-
-            % Build Storage Arrays and filter by number of occurences
-            [Output,obj] = obj.BuildStorageArrays(IntegrationData);
-
-            %check for empty Output
-            if isempty(Output.FeatIdentifiers)
-                Output.FeatIdentifiers(1,1:2) = 0;
-            end
-            Output.FeatIdentifiers(:,2) = round(Output.FeatIdentifiers(:,2),1);
-            Output = obj.GroupAndSampleScaling(Output);
-            Output.DataSize = size(Output.IntensityStorage,1);
-            Output.FoundInGroup = repmat(obj.GroupName,size(Output.FeatIdentifiers,1),1);
-            Output.SampleNames = obj.FileNames;
-            obj.Output = Output;
-            if ~exist("mode","var") %save results if batch mode
-                %build ResultDataFile
-                obj.ROIDataFileObj = matfile(obj.ROIDataFile,Writable=true);
-                %store Results
-                obj.ROIDataFileObj.ROIMat = obj.TempDataFileObj.ROIMat;
-                obj.ROIDataFileObj.ROIMatBLK  = obj.TempDataFileObj.ROIMatBLK;
-                obj.ROIDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec;
-                obj.ROIDataFileObj.timeVec  = obj.TempDataFileObj.timeVec;
-            end
-            %delete Temprorary file
-            delete(obj.TempDataFile)
-            obj.TempDataFile = "";
-        end
 
         function obj = SetOptimizationOptions(obj,OptimizeMode,bayesOptions)
 
@@ -913,12 +722,15 @@ classdef RawData
         function IntegrationData = AssignRT2SampleFile(obj,IntegrationData)
             test=cumsum(obj.nScansPadded)';
             nFiles = length(obj.nScansPadded);
-            parfor n=1:size(IntegrationData,2)
-                val = IntegrationData{3,n}(:,1);
+            fileID = zeros(size(IntegrationData.peakLocation));
+            peakLocation = IntegrationData.peakLocation;
+            parfor n = 1:numel(fileID)
+                val = peakLocation(n,1);
                 val = val < test;
                 val = sum(val,2)-1;
-                IntegrationData{3,n}(:,3) = abs(val-nFiles);
+                fileID(n,1) = abs(val-nFiles);
             end
+            IntegrationData.fileID = fileID;
         end
 
         function obj = ISNormalize(obj)
@@ -1102,6 +914,7 @@ classdef RawData
             obj.TempDataFileObj.ROIMat(:,empt) = [];
             obj.TempDataFileObj.ROImzVec(empt) = [];
         end
+
         function obj = FilterIsotopesScanStage(obj)
             tolerance = obj.mzerror;
             tolUnit = obj.mzErrorUnit;
@@ -1111,139 +924,19 @@ classdef RawData
             end
             obj.TempDataFileObj.ROICells = tempPeakData;
         end
-        
-        function [Output,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
-            TimeTolerance = obj.RTTol;
-            nFiles = size(obj.nScans,1);
-            if isscalar(varargin)
-                mzVector = varargin{1};
-                minDataPoints = nFiles;
-                isISIntegration = true;
-            else
-                mzVector = obj.TempDataFileObj.ROImzVec;
-                minOcc = obj.minOccurence;
-                minDataPoints = ceil(nFiles*minOcc);
-                isISIntegration = false;
-            end
-
-            % Gather Data
-
-            RTAssign = cellfun(@(x) x(:,2:3),IntegrationResults(3,:),'UniformOutput',false);
-            switch obj.EvaluationParameter
-                case "Height"
-                    HeightOrArea = 1;
-                case "Area"
-                    HeightOrArea = 2;
-            end
-            nPeaks = cellfun(@(x) size(x,1),RTAssign);
-            % remove cells with less peaks than required minimum
-            idx = nPeaks<minDataPoints;
-
-            %sum number of removed peaks
-            Removed = sum(nPeaks(idx),"all");
-            % remove cells with fever then required peaks
-            RTAssign(idx)=[];
-            IntegrationResults(:,idx)=[];
-            mzVector(:,idx)=[];
-            if isISIntegration == false
-                obj.TempDataFileObj.ROImzVec(:,idx) = [];
-                obj.TempDataFileObj.ROIMat(:,idx) = [];
-            end
-
-            % preallocate Storage CellArrays
-            IntStorage = cell(size(mzVector));
-            FeatId = cell(size(mzVector));
-            XIC =  cell(size(mzVector));
-            RTStorage = cell(size(mzVector));
-            Entropy_Storage = cell(size(mzVector));
-            SNStorage = cell(size(mzVector));
-            timeVec = obj.TempDataFileObj.timeVec;
-
-            intensities = IntegrationResults(HeightOrArea,:);
-            lowerBorders = IntegrationResults(2,:);
-            upperBorders = IntegrationResults(2,:);
-            entropyAndSN = IntegrationResults(4,:);
-            XICvec = IntegrationResults(5,:);
-
-            parfor n=1:size(RTAssign,2)
-                localIntensity = intensities{n}(:,1)
-                localLowerBorder = lowerBorders{n}(:,2);
-                localUpperBorder = upperBorders{n}(:,3);
-                localEntropy = entropyAndSN{n}(:,1);
-                localSN = entropyAndSN{n}(:,2);
-                localXIC = [XICvec{n},timeVec];
-
-                Times = RTAssign{n}(:,1);
-                SampleIndex = RTAssign{n}(:,2);
-                
-                %find unique Retention Times
-                [UniqueTimes,IndexToUnique] = uniquetol(Times,TimeTolerance,'DataScale',1,'OutputAllIndices',true);
-
-                % preallocate storage Matrices
-                AvgTimeVec = zeros(size(UniqueTimes));
-                IntMat = zeros(length(UniqueTimes),nFiles);
-                TimesMat = zeros(length(UniqueTimes),nFiles);
-                LowerBordersMat = zeros(length(UniqueTimes),nFiles);
-                UpperBordersMat = zeros(length(UniqueTimes),nFiles);
-                EntropyMat = zeros(length(UniqueTimes),nFiles);
-                SNMat = zeros(length(UniqueTimes),nFiles);
-                mzValue = repmat(mzVector(n),length(UniqueTimes),1);
-                % uniqueRT loop
-
-                for numRTs = 1:length(UniqueTimes)
-                    AvgTimeVec(numRTs) = mean(Times(IndexToUnique{numRTs}));
-                    IntMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localIntensity(IndexToUnique{numRTs});
-                    TimesMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = Times(IndexToUnique{numRTs});
-                    LowerBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localLowerBorder(IndexToUnique{numRTs});
-                    UpperBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localUpperBorder(IndexToUnique{numRTs});
-                    EntropyMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localEntropy(IndexToUnique{numRTs});
-                    SNMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localSN(IndexToUnique{numRTs});
-                end
-                IntStorage{n} = IntMat;
-                FeatId{n} = [mzValue,AvgTimeVec];
-                RTStorage{n} = TimesMat;
-                BordersMat = cat(3,LowerBordersMat,UpperBordersMat);
-                BordersMat=mat2cell(BordersMat,ones(1,numel(UniqueTimes)),ones(1,nFiles),2);
-                BordersMat = cellfun(@(x) squeeze(x), BordersMat, 'UniformOutput', false);
-                XIC{n} = ExtractXIC(localXIC,BordersMat);
-                Entropy_Storage{n} = EntropyMat;
-                SNStorage{n} = SNMat;
-            end
-            Output.GroupName = obj.GroupName;
-            Output.FeatIdentifiers = vertcat(FeatId{:});
-            Output.XIC = vertcat(XIC{:});
-            Output.IntensityStorage = vertcat(IntStorage{:});
-            Output.RetentionTimeStorage = vertcat(RTStorage{:});
-            Output.EntropyStorage = vertcat(Entropy_Storage{:});
-            Output.Signal2NoiseStorage = vertcat(SNStorage{:});
-            % duplicate row filter
-            [Output.FeatIdentifiers,idx] = unique(Output.FeatIdentifiers,'rows','stable');
-            Output.IntensityStorage = Output.IntensityStorage(idx,:);
-            Output.XIC = Output.XIC(idx,:);
-            Output.RetentionTimeStorage = Output.RetentionTimeStorage(idx,:);
-            Output.EntropyStorage = Output.EntropyStorage(idx,:);
-            Output.Signal2NoiseStorage = Output.Signal2NoiseStorage(idx,:);
-
-            %occurenceFilter
-            idx = sum(Output.IntensityStorage ~= 0,2)<minDataPoints;
-            Output.IntensityStorage(idx,:) = [];
-            Output.FeatIdentifiers(idx,:) = [];
-            Output.XIC(idx,:) = [];
-            Output.RetentionTimeStorage(idx,:) = [];
-            Output.EntropyStorage(idx,:) = [];
-            Output.Signal2NoiseStorage(idx,:) = [];
-             if isISIntegration == false
-                obj.OccurenceFiltered = Removed + sum(idx);
-            end
-            
-        end
 
         function Output = GroupAndSampleScaling(obj,Output)
-            if ~isempty(Output.IntensityStorage)
-                %GroupScale
-                Output.IntensityStorage = Output.IntensityStorage/obj.GroupScale;
-                %SampleScale
-                Output.IntensityStorage = Output.IntensityStorage./obj.SampScale';
+            if ~ Output.dataSize == 0
+                features = Output.feature;
+                for n = 1:length(features)
+                    %GroupScale
+                    features(n).peakHeights = features(n).peakHeights/obj.GroupScale;
+                    features(n).peakAreas = features(n).peakAreas/obj.GroupScale;
+                    %SampleScale
+                    features(n).peakHeights = features(n).peakHeights./obj.SampScale;
+                    features(n).peakAreas = features(n).peakAreas./obj.SampScale;
+                end
+                Output.feature = features;
             end
         end
 
@@ -1490,25 +1183,54 @@ classdef RawData
 
             end
         end
+        function outputStruct = FindOriginalScans(obj,inputStruct)
+            outputStruct = inputStruct;
+            error = obj.mzerror;
+            errorUnit = obj.mzErrorUnit;
+
+            allScans = obj.RawDataFileObj.PeakDataMS1;
+            numFiles = numel(obj.Files);
+
+            for n = 1: length(inputStruct)
+                avgSpectra = cell(1,numFiles);
+                borders = inputStruct(n).peakBorders;
+                
+                for f = 1:numFiles
+                    %check if borders contain NaN then skip iteration
+                    if any(isnan(borders(:,f)))
+                        continue
+                    end
+                    %select spectra in peak range
+                    scans = allScans{f,1}(borders(:,f));
+                    times = 1:numel(scans);
+                    [mzroi,MSroi,~] = ROIpeaks3(scans,0,error,errorUnit,1,times);
+                    %calculate average spectrum
+                    MSroi = mean(MSroi);
+                    %rescale
+                    MSroi = MSroi./max(MSroi,[],"all");
+                    %reorder output
+                    avgSpectra{1,f} = [mzroi;MSroi]';
+                end
+                outputStruct(n).spectrumMS1 = avgSpectra;
+            end
+        end
     end
     %%
     methods(Static)
-
-        function [IntegrationData,SumRemoved,empt] = FilterbyEntropy(IntegrationData,MedianEntropy)
-            %preallocate number of removed Features
-            SumRemoved = zeros(1,size(IntegrationData,2));
-            for n=1:size(IntegrationData,2)
-                idx=IntegrationData{4,n}(:,1)>MedianEntropy;
-                IntegrationData{1,n}(idx,:)=[];
-                IntegrationData{2,n}(idx,:)=[];
-                IntegrationData{3,n}(idx,:)=[];
-                IntegrationData{4,n}(idx,:)=[];
-                SumRemoved(n) = sum(idx);
-            end
-            % remove empty features and store
-            empt=cellfun(@isempty,IntegrationData(2,:));
-            IntegrationData(:,empt)=[];
-            SumRemoved = sum(SumRemoved,"all");
+        function IntegrationData = FilterbyEntropy(IntegrationData,MedianEntropy)
+        %removes peaks with high entropy
+            idx = IntegrationData.entropy > MedianEntropy;
+            IntegrationData.mass(idx) = [];
+            IntegrationData.peakLocation(idx) = [];
+            IntegrationData.peakRetentionTime(idx) = [];
+            IntegrationData.peakStartLocation(idx) = [];
+            IntegrationData.peakEndLocation(idx) = [];
+            IntegrationData.peakHeight(idx) = [];
+            IntegrationData.peakArea(idx) = [];
+            IntegrationData.entropy(idx) = [];
+            IntegrationData.signal2Noise(idx) = [];
+            IntegrationData.spectrumMS2(idx) = [];
+            IntegrationData.entropyFiltered = sum(idx);
         end
 
         function [values,sumRemoved]=Removify(values,found)

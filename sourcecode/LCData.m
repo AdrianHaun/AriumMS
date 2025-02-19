@@ -9,7 +9,7 @@ classdef LCData < RawData
     methods
         function obj = LCData(groupNumber)
             %Construct an instance of this class
-             if nargin == 0
+            if nargin == 0
                 groupNumber = 0;
             end
             obj = obj@RawData;
@@ -29,7 +29,7 @@ classdef LCData < RawData
             if ~isfield(obj.RawDataFileObj,"polarity")
                 obj = obj.DataCheck;
             end
-            
+
             polarities = obj.RawDataFileObj.polarity;
             for n=1:nFiles
                 peakTemp = [];
@@ -122,8 +122,8 @@ classdef LCData < RawData
 
             %remove scans outside RT range
             obj = obj.CutScansToSize;
-            
-             % remove isotopes and adducts
+
+            % remove isotopes and adducts
             if obj.IsotopeFilter == true
                 obj = obj.FilterIsotopesScanStage;
             end
@@ -266,9 +266,9 @@ classdef LCData < RawData
             delete(obj.TempDataFile)
             obj.TempDataFile = "";
         end
-        
+
         %% helper functions
-        
+
         function obj = IntegrateIS(obj)
             % identify IS Vectors
             obj.ISMass = obj.ISDat(:,1)';
@@ -410,8 +410,27 @@ classdef LCData < RawData
         end
 
         function IntResults = CWTIntegrate(obj,Index)
+            %output preallocation
+            IntResults = struct( ...
+                "mass",[], ...
+                "peakLocation",[], ...
+                "peakRetentionTime",[], ...
+                "peakStartLocation",[], ...
+                "peakEndLocation",[], ...
+                "peakHeight",[], ...
+                "peakArea",[], ...
+                "entropy",[], ...
+                "signal2Noise",[], ...
+                "minWidthFiltered",[], ...
+                "maxWidthFiltered",[], ...
+                "entropyFiltered",[], ...
+                "signal2NoiseFiltered",[], ...
+                "spectrumMS2",[], ...
+                "XIC",[], ...
+                "fileID",[]);
             Mat = obj.TempDataFileObj.ROIMat;
             Mat = Mat(:,Index);
+            mzVec = obj.TempDataFileObj.ROImzVec;
             minSN = obj.minSignalNoise;
 
             % prepare wavelet filter-bank
@@ -421,151 +440,267 @@ classdef LCData < RawData
 
             % calculate EIC derivatives and store as sparse
             smoothed = smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1);
-            Noise = std(Mat-smoothed);
+            noise = std(Mat-smoothed);
             Diff2 = zeros(length(times),size(Mat,2));
             Diff2(1:end-2,:) = diff(smoothed,2);
             numEIC = size(Mat,2);
-            IntResults=cell(8,numEIC); %preallocate output
             FilterBank = cwtfilterbank("SignalLength",size(Diff2,1),"WaveletParameters",[3 4],"VoicesPerOctave",8,"SamplingPeriod",seconds(obj.ScanFrequency),"PeriodLimits",[seconds(obj.minWidth) seconds(obj.maxWidth)]);% prepare wavelet filterbank
-            parfor id=1:numEIC
+            for id=1:numEIC
                 peaks = AutoCWT(Diff2(:,id),smoothed(:,id),FilterBank);
                 % Correct Peak Borders
                 peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
-                [peaks,tempStorage] = FilterPeaks(peaks,MinPWDataPoints,MaxPWDataPoints,minSN,Noise(:,id),Mat(:,id));
-                % integrate and store results
-                IntResults(:,id) = FinalizeIntegrationOutput(peaks,tempStorage,Mat(:,id),times);
+                IntResults(id).mass = mzVec(id);
+                IntResults(id).peakLocation = peaks(:,1);
+                IntResults(id).peakStartLocation = peaks(:,2);
+                IntResults(id).peakEndLocation = peaks(:,3);
+                IntResults(id).peakHeight = peaks(:,4);
+                IntResults(id) = obj.FilterPeaks(IntResults(id),MinPWDataPoints,MaxPWDataPoints,minSN,noise(id));
+                % entropy calculation
+                IntResults(id).entropy = CalculatePeakEntropy(IntResults(id),full(Mat(:,id)));
+            end
+           
+            
+            IntResults = FinalizeIntegrationOutput(IntResults,currentTIC,currentTime);
+        end
+
+        function IntResults = FilterPeaks(obj,IntResults,MinPWDataPoints,MaxPWDataPoints,maxSN,Noise)
+            % Filters identified peaks from AutoCWT
+            for n = 1:length(IntResults)
+                %check empty input
+                if isempty(IntResults(n).peakLocation)
+                    continue
+                end
+
+                %% Peak filter
+                %remove duplicate peaks
+                out = unique([IntResults(n).peakLocation,IntResults(n).peakStartLocation,IntResults(n).peakEndLocation,IntResults(n).peakHeight,],'rows','stable');
+                IntResults(n).peakLocation = out(:,1);
+                IntResults(n).peakStartLocation = out(:,2);
+                IntResults(n).peakEndLocation = out(:,3);
+                IntResults(n).peakHeight = out(:,4);
+
+                %preallocate indexarray
+                idx = false(size(IntResults(n).peakLocation));
+
+                %remove peaks with wrong boundaries
+                id = IntResults(n).peakStartLocation>=IntResults(n).peakEndLocation;
+                idx = idx | id;
+
+                %remove peaks with height = 0
+                id = IntResults(n).peakHeight == 0;
+                idx = idx | id;
+
+                %remove peaks with bad Peak asymmetry
+
+                symmetry = (IntResults(n).peakEndLocation - IntResults(n).peakLocation)./(IntResults(n).peakLocation - IntResults(n).peakStartLocation);
+                id = symmetry<0.3 | symmetry>3;
+                idx = idx | id;
+
+                %less than minimum peak width
+                id = IntResults(n).peakEndLocation-IntResults(n).peakStartLocation < MinPWDataPoints;
+                IntResults(n).minWidthFiltered=sum(id);
+                idx = idx | id;
+
+                %more than maximum peak width
+                id=IntResults(n).peakEndLocation - IntResults(n).peakStartLocation > MaxPWDataPoints;
+                IntResults(n).maxWidthFiltered=sum(id);
+                idx = idx | id;
+
+                %S/N peak rejection
+                IntResults(n).signal2Noise = IntResults(n).peakHeight ./ Noise(n);
+                id = IntResults(n).signal2Noise < maxSN;
+                IntResults(n).signal2NoiseFiltered = sum(id);
+                idx = idx | id;
+
+                % remove identified peaks
+                IntResults(n).peakLocation(idx) = [];
+                IntResults(n).peakStartLocation(idx) = [];
+                IntResults(n).peakEndLocation(idx) = [];
+                IntResults(n).peakHeight(idx) = [];
+                IntResults(n).signal2Noise(idx) = [];
             end
         end
 
-        
-        
-        function [Output,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
+        function [output,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
+            nFiles = numel(obj.Files);
+
+            %preallocate Output struct
+            output = struct(...
+                "feature",[],...
+                "minWidthFiltered",[],...
+                "maxWidthFiltered",[],...
+                "entropyFiltered",[],...
+                "signal2NoiseFiltered",[],...
+                "occurenceFiltered",[],...
+                "groupName",string,...
+                "fileNames",string,...
+                "dataSize",[],...
+                "separationType",string);
+
+            %store group infos
+            output.minWidthFiltered = IntegrationResults.minWidthFiltered;
+            output.maxWidthFiltered = IntegrationResults.maxWidthFiltered;
+            output.entropyFiltered = IntegrationResults.entropyFiltered;
+            output.signal2NoiseFiltered = IntegrationResults.signal2NoiseFiltered;
+            output.groupName = obj.GroupName;
+            output.fileNames = obj.FileNames;
+            output.separationType = obj.SeparationType;
+
+
+            featureStruct = struct(...
+                "featID",strings,...
+                "mass_measured",[],...
+                "retentionTime",[],...
+                "adductType",strings,...
+                "mass_corrected",[],...
+                "formula",strings,...
+                "peakHeights",zeros(0,nFiles),...
+                "peakAreas",zeros(0,nFiles),...
+                "peakLocations",zeros(0,nFiles),...
+                "peakBorders",zeros(0,nFiles),...
+                "retentionTimes",zeros(0,nFiles),...
+                "signal2Noise",zeros(0,nFiles),...
+                "entropy",zeros(0,nFiles),...
+                "XIC",cell(1),...
+                "spectrumMS1",cell(1),...
+                "spectrumMS2",cell(1));
+
+
+            IntegrationResults = FileSortPeaks(IntegrationResults);
+
+            %gather tolerances
             TimeTolerance = obj.RTTol;
-            nFiles = size(obj.nScans,1);
+
             if isscalar(varargin)
-                mzVector = varargin{1};
                 minDataPoints = nFiles;
                 isISIntegration = true;
             else
-                mzVector = obj.TempDataFileObj.ROImzVec;
-                minOcc = obj.minOccurence;
-                minDataPoints = ceil(nFiles*minOcc);
+                minDataPoints = ceil(nFiles*obj.minOccurence);
                 isISIntegration = false;
             end
 
-            % Gather Data
+            %match features and store in feature struct
+            uniqueFeatures = [vertcat(IntegrationResults.mass{:}),vertcat(IntegrationResults.peakRetentionTime{:})];
+            uniqueFeatures = unique(uniqueFeatures,"rows");
 
-            RTAssign = cellfun(@(x) x(:,2:3),IntegrationResults(3,:),'UniformOutput',false);
-            switch obj.EvaluationParameter
-                case "Height"
-                    HeightOrArea = 1;
-                case "Area"
-                    HeightOrArea = 2;
+            numFeatures = height(uniqueFeatures);
+
+            %preallocat feature Storage
+            featureStruct = repmat(featureStruct,numFeatures,1);
+
+
+            parfor n = 1:numFeatures
+                currentFeature = uniqueFeatures(n,:);
+                % preallocate temp storages
+                emptyArray = NaN(1,nFiles);
+                areas = emptyArray;
+                heights = emptyArray;
+                retentionTimes = emptyArray;
+                peakLocation = emptyArray;
+                peakBorders = [emptyArray;emptyArray];
+                signal2Noise = emptyArray;
+                entropy = emptyArray;
+                spectrum = cell(1,nFiles);
+                xic = cell(1,nFiles);
+                %compare feature between files
+                for file = 1:nFiles
+                    idm = IntegrationResults.mass{file} == currentFeature(1,1);
+                    idRT = abs(IntegrationResults.peakRetentionTime{file} - currentFeature(1,2)) <= TimeTolerance;
+                    idx = idm & idRT;
+                    if sum(idx) == 0 %no matching peaks
+                        continue
+                    elseif sum(idx) > 1 %split peak, ignore peak with lower intensity
+                        h = max(IntegrationResults.peakHeight{file}(idx));
+                        idx = idx & IntegrationResults.peakHeight{file} == h;
+                    end
+                    areas(1,file) = IntegrationResults.peakArea{file}(idx);
+                    heights(1,file) = IntegrationResults.peakHeight{file}(idx);
+                    retentionTimes(1,file) = IntegrationResults.peakRetentionTime{file}(idx);
+                    peakLocation(1,file) = IntegrationResults.peakLocation{file}(idx);
+                    peakBorders(1,file) = IntegrationResults.peakStartLocation{file}(idx);
+                    peakBorders(2,file) = IntegrationResults.peakEndLocation{file}(idx);
+                    signal2Noise(1,file) = IntegrationResults.signal2Noise{file}(idx);
+                    entropy(1,file) = IntegrationResults.entropy{file}(idx);
+                    spectrum{1,file} = IntegrationResults.spectrumMS2{file}(idx);
+                    xic{1,file} = IntegrationResults.XIC(peakBorders(1,file):peakBorders(1,file),:);
+                end
+                %store matching features
+                featureStruct(n).mass_measured = currentFeature(1,1);
+                featureStruct(n).retentionTime = currentFeature(1,2);
+                featureStruct(n).peakHeights = heights;
+                featureStruct(n).peakAreas = areas;
+                featureStruct(n).peakLocations = peakLocation;
+                featureStruct(n).peakBorders = peakBorders;
+                featureStruct(n).retentionTimes = retentionTimes;
+                featureStruct(n).signal2Noise = signal2Noise;
+                featureStruct(n).entropy = entropy;
+                featureStruct(n).spectrumMS2 = spectrum;
+                featureStruct(n).XIC = xic;
             end
-            nPeaks = cellfun(@(x) size(x,1),RTAssign);
-            % remove cells with less peaks than required minimum
-            idx = nPeaks<minDataPoints;
+
+            % remove features with less peaks than required minimum
+            numElements = zeros(length(featureStruct),1);
+            for ix = 1:length(featureStruct)
+                numElements(ix) = nnz(~isnan(featureStruct(ix).peakHeights));
+            end
+            idx = numElements < minDataPoints;
 
             %sum number of removed peaks
-            Removed = sum(nPeaks(idx),"all");
-            % remove cells with fever then required peaks
-            RTAssign(idx)=[];
-            IntegrationResults(:,idx)=[];
-            mzVector(:,idx)=[];
+            output.occurenceFiltered = sum(numElements(idx),"all");
+            featureStruct(idx) = [];
+
             if isISIntegration == false
-                obj.TempDataFileObj.ROImzVec(:,idx) = [];
-                obj.TempDataFileObj.ROIMat(:,idx) = [];
-            end
-
-            % preallocate Storage CellArrays
-            IntStorage = cell(size(mzVector));
-            FeatId = cell(size(mzVector));
-            XIC =  cell(size(mzVector));
-            RTStorage = cell(size(mzVector));
-            Entropy_Storage = cell(size(mzVector));
-            SNStorage = cell(size(mzVector));
-            timeVec = obj.TempDataFileObj.timeVec;
-
-            intensities = IntegrationResults(HeightOrArea,:);
-            lowerBorders = IntegrationResults(2,:);
-            upperBorders = IntegrationResults(2,:);
-            entropyAndSN = IntegrationResults(4,:);
-            XICvec = IntegrationResults(5,:);
-
-            parfor n=1:size(RTAssign,2)
-                localIntensity = intensities{n}(:,1)
-                localLowerBorder = lowerBorders{n}(:,2);
-                localUpperBorder = upperBorders{n}(:,3);
-                localEntropy = entropyAndSN{n}(:,1);
-                localSN = entropyAndSN{n}(:,2);
-                localXIC = [XICvec{n},timeVec];
-
-                Times = RTAssign{n}(:,1);
-                SampleIndex = RTAssign{n}(:,2);
-                
-                %find unique Retention Times
-                [UniqueTimes,IndexToUnique] = uniquetol(Times,TimeTolerance,'DataScale',1,'OutputAllIndices',true);
-
-                % preallocate storage Matrices
-                AvgTimeVec = zeros(size(UniqueTimes));
-                IntMat = zeros(length(UniqueTimes),nFiles);
-                TimesMat = zeros(length(UniqueTimes),nFiles);
-                LowerBordersMat = zeros(length(UniqueTimes),nFiles);
-                UpperBordersMat = zeros(length(UniqueTimes),nFiles);
-                EntropyMat = zeros(length(UniqueTimes),nFiles);
-                SNMat = zeros(length(UniqueTimes),nFiles);
-                mzValue = repmat(mzVector(n),length(UniqueTimes),1);
-                % uniqueRT loop
-
-                for numRTs = 1:length(UniqueTimes)
-                    AvgTimeVec(numRTs) = mean(Times(IndexToUnique{numRTs}));
-                    IntMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localIntensity(IndexToUnique{numRTs});
-                    TimesMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = Times(IndexToUnique{numRTs});
-                    LowerBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localLowerBorder(IndexToUnique{numRTs});
-                    UpperBordersMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localUpperBorder(IndexToUnique{numRTs});
-                    EntropyMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localEntropy(IndexToUnique{numRTs});
-                    SNMat(numRTs,SampleIndex(IndexToUnique{numRTs})) = localSN(IndexToUnique{numRTs});
+                %build featureID
+                for ix = 1:length(featureStruct)
+                    featureStruct(ix).featID = featureStruct(ix).mass_measured + "Da@" + featureStruct(ix).retentionTime + "s_" + obj.GroupName;
                 end
-                IntStorage{n} = IntMat;
-                FeatId{n} = [mzValue,AvgTimeVec];
-                RTStorage{n} = TimesMat;
-                BordersMat = cat(3,LowerBordersMat,UpperBordersMat);
-                BordersMat=mat2cell(BordersMat,ones(1,numel(UniqueTimes)),ones(1,nFiles),2);
-                BordersMat = cellfun(@(x) squeeze(x), BordersMat, 'UniformOutput', false);
-                XIC{n} = ExtractXIC(localXIC,BordersMat);
-                Entropy_Storage{n} = EntropyMat;
-                SNStorage{n} = SNMat;
-            end
-            Output.GroupName = obj.GroupName;
-            Output.FeatIdentifiers = vertcat(FeatId{:});
-            Output.XIC = vertcat(XIC{:});
-            Output.IntensityStorage = vertcat(IntStorage{:});
-            Output.RetentionTimeStorage = vertcat(RTStorage{:});
-            Output.EntropyStorage = vertcat(Entropy_Storage{:});
-            Output.Signal2NoiseStorage = vertcat(SNStorage{:});
-            % duplicate row filter
-            [Output.FeatIdentifiers,idx] = unique(Output.FeatIdentifiers,'rows','stable');
-            Output.IntensityStorage = Output.IntensityStorage(idx,:);
-            Output.XIC = Output.XIC(idx,:);
-            Output.RetentionTimeStorage = Output.RetentionTimeStorage(idx,:);
-            Output.EntropyStorage = Output.EntropyStorage(idx,:);
-            Output.Signal2NoiseStorage = Output.Signal2NoiseStorage(idx,:);
 
-            %occurenceFilter
-            idx = sum(Output.IntensityStorage ~= 0,2)<minDataPoints;
-            Output.IntensityStorage(idx,:) = [];
-            Output.FeatIdentifiers(idx,:) = [];
-            Output.XIC(idx,:) = [];
-            Output.RetentionTimeStorage(idx,:) = [];
-            Output.EntropyStorage(idx,:) = [];
-            Output.Signal2NoiseStorage(idx,:) = [];
-             if isISIntegration == false
-                obj.OccurenceFiltered = Removed + sum(idx);
+                %finalize MS2 spectrum
+                featureStruct = obj.FindMSnSpectra(featureStruct);
+                %gather original scans
+                featureStruct = obj.FindOriginalScans(featureStruct);
             end
-            
+
+            output.feature = featureStruct;
+            output.dataSize = length(output.feature);
+            %local function
+            function OutArray = FileSortPeaks(InArray)
+                %% sort struct contents to original file and remove duplicate Features within one measurement
+
+                %preallocate output Feature struct
+                OutArray = struct( ...
+                    "mass",cell(1), ...
+                    "peakLocation",cell(1), ...
+                    "peakRetentionTime",cell(1), ...
+                    "peakStartLocation",cell(1), ...
+                    "peakEndLocation",cell(1), ...
+                    "peakHeight",cell(1), ...
+                    "peakArea",cell(1), ...
+                    "entropy",cell(1), ...
+                    "signal2Noise",cell(1), ...
+                    "spectrumMS2",cell(1), ...
+                    "XIC",InArray.XIC, ...
+                    "fileID",cell(1));
+
+                %sort
+                for fileID = 1:max(InArray.fileID)
+                    id = InArray.fileID == fileID;
+                    OutArray.mass{fileID} = InArray.mass(id);
+                    OutArray.peakLocation{fileID} = InArray.peakLocation(id);
+                    OutArray.peakRetentionTime{fileID} = InArray.peakRetentionTime(id);
+                    OutArray.peakStartLocation{fileID} = InArray.peakStartLocation(id);
+                    OutArray.peakEndLocation{fileID} = InArray.peakEndLocation(id);
+                    OutArray.peakHeight{fileID} = InArray.peakHeight(id);
+                    OutArray.peakArea{fileID} = InArray.peakArea(id);
+                    OutArray.entropy{fileID} = InArray.entropy(id);
+                    OutArray.signal2Noise{fileID} = InArray.signal2Noise(id);
+                    OutArray.spectrumMS2{fileID} = InArray.spectrumMS2(id);
+                    OutArray.fileID{fileID} = InArray.fileID(id);
+                end
+            end
         end
 
-        
+
         function [PeakData,TimeData,PrecursorData,ColType,ColEnergy]= MS2CleanUp(obj,PeakData,TimeData,PrecursorData,ColType,ColEnergy)
             %remove empty scans and rescale intensities
             %% Clean Data
@@ -585,5 +720,5 @@ classdef LCData < RawData
             end
         end
     end
-    
+
 end
