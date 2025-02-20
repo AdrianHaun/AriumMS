@@ -155,6 +155,8 @@ classdef RawData
                         [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n},polarityCells{n}] = mzMLinfo(FileLoc{n});
                     case "mzXML"
                         [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n},polarityCells{n}] = mzXMLinfo(FileLoc{n});
+                    case "CDF"
+                        [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n},polarityCells{n}] = mzCDFinfo(FileLoc{n});
                 end
             end
             obj.RawDataFileObj.PreviewTICs = TIC;
@@ -1189,6 +1191,14 @@ classdef RawData
             errorUnit = obj.mzErrorUnit;
 
             allScans = obj.RawDataFileObj.PeakDataMS1;
+            % append all scans with spacers in between, to match processing
+            % indices
+            for n = 1:numel(allScans)
+                temp = allScans{n,1};
+                temp(obj.nScansPadded(n),1) = {[]};
+                allScans{n,1} = temp;
+            end
+            allScans = vertcat(allScans{:});
             numFiles = numel(obj.Files);
 
             for n = 1: length(inputStruct)
@@ -1201,15 +1211,21 @@ classdef RawData
                         continue
                     end
                     %select spectra in peak range
-                    scans = allScans{f,1}(borders(:,f));
-                    times = 1:numel(scans);
-                    [mzroi,MSroi,~] = ROIpeaks3(scans,0,error,errorUnit,1,times);
-                    %calculate average spectrum
-                    MSroi = mean(MSroi);
-                    %rescale
-                    MSroi = MSroi./max(MSroi,[],"all");
-                    %reorder output
-                    avgSpectra{1,f} = [mzroi;MSroi]';
+                    scans = allScans(borders(:,f));
+                    %remove possible empty scans
+                    scans(cellfun(@isempty, scans)) = [];
+                    if numel(scans) > 1 %average scan if multiple are present
+                        times = 1:numel(scans);
+                        [mzroi,MSroi,~] = ROIpeaks3(scans,0,error,errorUnit,1,times);
+                        %calculate average spectrum
+                        MSroi = mean(MSroi);
+                        %rescale
+                        MSroi = MSroi./max(MSroi,[],"all");
+                        %reorder output
+                        avgSpectra{1,f} = [mzroi;MSroi]';
+                    else
+                        avgSpectra{1,f} = scans{1,1};
+                    end
                 end
                 outputStruct(n).spectrumMS1 = avgSpectra;
             end

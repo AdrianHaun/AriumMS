@@ -42,6 +42,8 @@ classdef LCData < RawData
                         [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc{n},MSLevel=Level);
                     case "mzXML"
                         [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
+                    case "CDF"
+                        [peakTemp,timeTemp] = mzcdf2peaks(mzcdfread(DataLoc{n},'Verbose',false));
                 end
                 %remove possible empty scans
                 emptyScans = cellfun(@isempty, peakTemp);
