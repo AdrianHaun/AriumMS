@@ -42,57 +42,59 @@ classdef FeatData
 
     methods
         function obj = FeatData(FullOutput)
-            %UNTITLED Construct an instance of this class
-            %   Detailed explanation goes here
-            obj.GroupName = FullOutput.GroupName(1,:);
-            if size(FullOutput.GroupName,1)>1
-                obj.AbstractGroupName =  "Augmented Group " + FullOutput.GroupName(2,:);
-            end
-            %remove duplicate rows
-            [obj.IdentifierArray,ia,~] = unique(FullOutput.FeatIdentifiers,"rows");
 
-            obj.FullUnscaledIntensityArray = FullOutput.IntensityStorage(ia,:);
-            obj.RetentionTimeArray = FullOutput.RetentionTimeStorage(ia,:);
-            obj.NumberOfFilesArray = FullOutput.SampleNumbers;
-            obj.EntropyArray = FullOutput.EntropyStorage(ia,:);
-            obj.Signal2NoiseArray = FullOutput.Signal2NoiseStorage(ia,:);
-            obj.XIC = FullOutput.XIC(ia,:);
-            if iscell(FullOutput.SampleNames)
-                obj.CombinedSampleNames = FullOutput.SampleNames;
-            else
-                obj.CombinedSampleNames{1}=FullOutput.SampleNames;
-            end
-
-            if isfield(FullOutput,"OriginalGroup")
-                obj.OriginalGroup = FullOutput.OriginalGroup(ia,:);
-            else
-                obj.OriginalGroup = repmat(obj.GroupName,size(obj.IdentifierArray,1),1);
-            end
-
-            obj = obj.BuildInGroupString;
-            obj.NameStringArray = obj.IdentifierArray(:,1) + "@" + obj.IdentifierArray(:,2) + "s,"+ obj.InGroup;
-            Subgroups = obj.FullUnscaledIntensityArray;
-            Subgroups(Subgroups==0)=NaN;
-            Subgroups = mat2cell(Subgroups,size(Subgroups,1),obj.NumberOfFilesArray);
-            %replace missing by average value of that feature
-            parfor q=1:size(Subgroups,2)
-                mat=Subgroups{q};
-                for row = 1:size(mat,1)
-                    missingIndices = isnan(mat(row, :));
-                    rowMean = mean(mat(row, ~missingIndices));
-                    mat(row, missingIndices) = rowMean;
+            if nargin > 0
+                
+                obj.GroupName = FullOutput.GroupName(1,:);
+                if size(FullOutput.GroupName,1)>1
+                    obj.AbstractGroupName =  "Augmented Group " + FullOutput.GroupName(2,:);
                 end
-                Subgroups{q}=mat;
-            end
-            obj.CleanFullIntensityArray = horzcat(Subgroups{:});
-            obj.IntensityArray = obj.CleanFullIntensityArray;
+                %remove duplicate rows
+                [obj.IdentifierArray,ia,~] = unique(FullOutput.FeatIdentifiers,"rows");
 
-            obj = obj.GetOccurencesAndUniqueness;
-            obj = obj.CalculateAveragesAndSTD;
-            obj = obj.CalculateFoldChanges;
-            obj = obj.BuildIdentificaltionLevelStrings;
+                obj.FullUnscaledIntensityArray = FullOutput.IntensityStorage(ia,:);
+                obj.RetentionTimeArray = FullOutput.RetentionTimeStorage(ia,:);
+                obj.NumberOfFilesArray = FullOutput.SampleNumbers;
+                obj.EntropyArray = FullOutput.EntropyStorage(ia,:);
+                obj.Signal2NoiseArray = FullOutput.Signal2NoiseStorage(ia,:);
+                obj.XIC = FullOutput.XIC(ia,:);
+                if iscell(FullOutput.SampleNames)
+                    obj.CombinedSampleNames = FullOutput.SampleNames;
+                else
+                    obj.CombinedSampleNames{1}=FullOutput.SampleNames;
+                end
+
+                if isfield(FullOutput,"OriginalGroup")
+                    obj.OriginalGroup = FullOutput.OriginalGroup(ia,:);
+                else
+                    obj.OriginalGroup = repmat(obj.GroupName,size(obj.IdentifierArray,1),1);
+                end
+
+                obj = obj.BuildInGroupString;
+                obj.NameStringArray = obj.IdentifierArray(:,1) + "@" + obj.IdentifierArray(:,2) + "s,"+ obj.InGroup;
+                Subgroups = obj.FullUnscaledIntensityArray;
+                Subgroups(Subgroups==0)=NaN;
+                Subgroups = mat2cell(Subgroups,size(Subgroups,1),obj.NumberOfFilesArray);
+                %replace missing by average value of that feature
+                parfor q=1:size(Subgroups,2)
+                    mat=Subgroups{q};
+                    for row = 1:size(mat,1)
+                        missingIndices = isnan(mat(row, :));
+                        rowMean = mean(mat(row, ~missingIndices));
+                        mat(row, missingIndices) = rowMean;
+                    end
+                    Subgroups{q}=mat;
+                end
+                obj.CleanFullIntensityArray = horzcat(Subgroups{:});
+                obj.IntensityArray = obj.CleanFullIntensityArray;
+
+                obj = obj.GetOccurencesAndUniqueness;
+                obj = obj.CalculateAveragesAndSTD;
+                obj = obj.CalculateFoldChanges;
+                obj = obj.BuildIdentificaltionLevelStrings;
+            end
         end
-        
+
         function obj = BuildIdentificaltionLevelStrings(obj)
             % Lv5 unique Feature - mz@RT
             obj.IdentificationLevel = "Level " + ones(size(obj.NameStringArray))*5;
@@ -507,10 +509,10 @@ classdef FeatData
                     Spectra = MeasuredSpectra(n,:);
                     ScoresAndID = GroupScores(n,:);
                     for Group = 1:size(ScoresAndID,2)
-                    rowID = ScoresAndID{1,Group}(:,1)>=750;
-                    SpecID = ScoresAndID{1,Group}(rowID,2);
-                    SpecID = SpecID+1; %because first row are m/z values
-                    Storage = cell(size(Spectra,2),1);
+                        rowID = ScoresAndID{1,Group}(:,1)>=750;
+                        SpecID = ScoresAndID{1,Group}(rowID,2);
+                        SpecID = SpecID+1; %because first row are m/z values
+                        Storage = cell(size(Spectra,2),1);
                         if ~isempty(Spectra{1,Group})
                             Storage{Group,1} = Spectra{1,Group}(:,[1,unique(SpecID(:,1)')]);
                         end
@@ -523,7 +525,7 @@ classdef FeatData
                     elseif size(Storage,1) == 1
                         FullMerge(n,1) = Storage;
                     end
-                    
+
                     continue
 
                 elseif hasMatch(n) == false & ~isempty(GroupScores{n,1})
@@ -604,7 +606,7 @@ classdef FeatData
                     Subgroups = obj.RetentionTimeArray;
                     Subgroups = mat2cell(Subgroups,ones(size(Subgroups,1),1),obj.NumberOfFilesArray);
                     Data = Subgroups(n,2:end);
-                   Vec = zeros(1,sum(obj.NumberOfFilesArray));
+                    Vec = zeros(1,sum(obj.NumberOfFilesArray));
                     Vec = mat2cell(Vec,1,obj.NumberOfFilesArray);
                     %expand Cell array
                     for Deal = 1:size(Spectra,2)
@@ -657,7 +659,7 @@ classdef FeatData
                         %deal remaining
                         obj.OriginalGroup(end,Deal) = OGroup(1,Deal);
                     end
-               
+
                 else % store single group spectra
                     Spectra = MeasuredSpectra(n,:);
                     id = cellfun(@isempty,Spectra);
@@ -668,7 +670,7 @@ classdef FeatData
                 end
             end
 
-            
+
             %% recalculate stuff
             %AverageIntensities and StandardDeviation
             obj = obj.CalculateAveragesAndSTD;

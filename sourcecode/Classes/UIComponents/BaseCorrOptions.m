@@ -13,8 +13,8 @@ classdef BaseCorrOptions
 
     methods
         function obj = BaseCorrOptions(CallingTab,CallingData)
-            %UNTITLED Construct an instance of this class
-            %   Detailed explanation goes here            
+
+            if nargin > 0         
             obj.Container = uipanel(CallingTab,"Title","Baseline Correction Parameters", ...
                 "BackgroundColor",[0.90,0.90,0.90], ...
                 "Position",[465,10,220,180], ...
@@ -72,6 +72,7 @@ classdef BaseCorrOptions
                 Tooltip="Quantile value for Quantile estimation method. Recommended setting: 0.1");
             obj.Labels(6) = uilabel(obj.Container,"Text","Quantile Value","Position",[5,5,110,20],"HorizontalAlignment","right");
 
+            end
         end
     end
 end

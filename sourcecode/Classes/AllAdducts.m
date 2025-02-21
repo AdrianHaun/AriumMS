@@ -1,5 +1,5 @@
 classdef AllAdducts < AddNLoss
-%% Object for storing Negative Adduct Filter UI elements
+    %% Object for storing Negative Adduct Filter UI elements
     properties
         SingleArray matlab.ui.control.CheckBox
         AllSingles matlab.ui.control.CheckBox
@@ -13,8 +13,7 @@ classdef AllAdducts < AddNLoss
 
     methods
         function obj = AllAdducts(CallingData)
-            %UNTITLED Construct an instance of this class
-            %   Detailed explanation goes here
+
             obj@AddNLoss(CallingData)
             % Change Size of GUI to accomodate dual polarity adducts
             obj.UIFigure.Position = [100 100 815 600];
@@ -228,7 +227,7 @@ classdef AllAdducts < AddNLoss
             obj.TripleArray(5).Text = 'M-3H';
             obj.TripleArray(5).Position = [15 25 90 22];
 
-             % Create All Triples
+            % Create All Triples
             obj.AllTriples = uicheckbox(obj.TripleSubPanel);
             obj.AllTriples.ValueChangedFcn = @(src,event) {AllTriplesChanged(obj,src,event)};
             obj.AllTriples.Text = 'All';
@@ -279,13 +278,13 @@ classdef AllAdducts < AddNLoss
             obj.DoubleArray(9) = uicheckbox(obj.DualSubPanel);
             obj.DoubleArray(9).Text = 'M-2H';
             obj.DoubleArray(9).Position = [15 75 93 22];
-            
+
             % Create All Dual
             obj.AllDoubles = uicheckbox(obj.DualSubPanel);
             obj.AllDoubles.ValueChangedFcn = @(src,event) {AllDualsChanged(obj,src,event)};
             obj.AllDoubles.Text = 'All';
             obj.AllDoubles.Position = [15 255 35 22];
-            
+
             %load previous pos data
             val = num2cell(CallingData.AddSelectedPos(27:30));
             [obj.TripleArray(1:4).Value] = deal(val{:});
