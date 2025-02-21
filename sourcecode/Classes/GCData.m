@@ -188,7 +188,7 @@ classdef GCData < RawData
             end
 
             % Integrate all Peaks
-            IntegrationData = obj.IntegrateGC;
+            IntegrationData = obj.GCIntegrate;
             %Calculate number of removed features
             obj.MinWidthFiltered = IntegrationData.minWidthFiltered;
             obj.MaxWidthFiltered = IntegrationData.maxWidthFiltered;
@@ -234,7 +234,7 @@ classdef GCData < RawData
         end
 
         %% helper functions
-        function IntResults = IntegrateGC(obj)
+        function IntResults = GCIntegrate(obj)
             %output preallocation
             IntResults = struct( ...
                 "mass",[], ...

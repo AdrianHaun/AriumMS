@@ -547,192 +547,20 @@ classdef RawData
             obj.TempDataFileObj.ROICells = tempCell;
         end
 
-        function obj = IntegrateIS(obj)
-            % identify IS Vectors
-            obj.ISMass = obj.ISDat(:,1)';
-            mzVec = obj.TempDataFileObj.ROImzVec;
-            %check tolerance and store difference
-            switch obj.mzTolUnit
-                case "Da"
-                    ISid = abs(mzVec-obj.ISMass') <= obj.mzTol;
-                    obj.ISMassFound = sort(mzVec(any(ISid,1)),2,"ascend");
-                    foundMassID = any(ISid,2);
-                case "ppm"
-                    ISid = abs(mzVec-obj.ISMass')./mzVec*10^6 <= obj.mzTol;
-                    obj.ISMassFound = sort(mzVec(any(ISid,1)),2,"ascend");
-                    foundMassID = any(ISid,2);
-            end
-            %remove IS outside tolerance and throw warning
-            if all(~foundMassID)
-                % if no IS mass found, throw warning and exit
-                header="Skipping ISTD Normalization";
-                message = ["Reason: no Internal standard mass was found in this group","Check the specified m/z or increase the mass tolerance"];
-                fig = uifigure;
-                uialert(fig,message,header,'Icon','warning');
-                return
-            elseif any(~foundMassID)
-                % if some IS mass is not found, throw warning and continue
-                header="Skipping ISTD No. ";
-                for i=1:size(obj.ISMass,2)
-                    if foundMassID(i)==0
-                        header = header + i + " ";
-                    end
-                end
-                message = ["Reason: Internal standard mass was not found in this group","Check the specified m/z or increase the mass tolerance"];
-                fig = uifigure;
-                uialert(fig,message,header,'Icon','warning');
-            end
-            ISid=any(ISid);
-            obj.ISMass(~foundMassID)=[];
-            % extract relevant columns and perform Peak Picking and
-            % Integration
-            ISIntegrationData = obj.CWTIntegrate(ISid);
-            % remove possible empty columns
-            id = cellfun(@isempty,ISIntegrationData(1,:));
-            ISIntegrationData(:,id) = [];
-            obj.ISMassFound(:,id) = [];
-            if isempty(ISIntegrationData{1,1})
-                header="Skipping ISTD Normalization";
-                message = ["Reason: no Internal standard was found in this group","Check the specified RT or increase the time tolerance"];
-                fig = uifigure;
-                uialert(fig,message,header,'Icon','warning');
-                return
-            end
-            % assign Peaks to Sample
-            ISIntegrationData = obj.AssignRT2SampleFile(ISIntegrationData);
-            ISIntegrationData(5:7,:) = [];
-            ISData = obj.BuildStorageArrays(ISIntegrationData,obj.ISMassFound);
-
-            % check if RT Range is Correct and Remove Feature outside range
-            nIS = height(obj.ISDat);
-            counter = 1;
-            id = [];
-            while counter <= nIS
-                ISmz = obj.ISDat(counter,1);
-                IStime = obj.ISDat(counter,2);
-                timeTol = obj.ISDat(counter,3);
-                switch obj.mzTolUnit
-                    case "Da"
-                        idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz) >= obj.mzTol;
-                    case "ppm"
-                        idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz)./ISmz*10^6 >= obj.mzTol;
-                end
-                idrt = abs(ISData.FeatIdentifiers(:,2)-IStime)>=timeTol;
-                id = [id,any([idmz,idrt],2)];
-                counter = counter+1;
-            end
-            id = all(id,2);
-            ISData.FeatIdentifiers(id,:) = [];
-            ISData.IntensityStorage(id,:) = [];
-            ISData.RetentionTimeStorage(id,:) = [];
-            ma = [];
-            % filter possible multiple Features for one mass
-            if ~isempty(ISData.FeatIdentifiers)
-                meanInt = mean(ISData.IntensityStorage,2);
-                counter = 1;
-                while counter <= nIS
-                    ISmz = obj.ISDat(counter,1);
-                    switch obj.mzTolUnit
-                        case "Da"
-                            idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz) <= obj.mzTol;
-                        case "ppm"
-                            idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz)./ISData.FeatIdentifiers(:,1)*10^6 <= obj.mzTol;
-                    end
-                    ma = [ma,max(meanInt(idmz))];
-                    counter = counter+1;
-                end
-                id = ismember(meanInt,ma);
-                ISData.FeatIdentifiers = ISData.FeatIdentifiers(id,:);
-                ISData.IntensityStorage = ISData.IntensityStorage(id,:);
-                ISData.RetentionTimeStorage = ISData.RetentionTimeStorage(id,:);
-            end
-
-            %store in obj
-            check = ismember(obj.ISMassFound,ISData.FeatIdentifiers(:,1));
-            obj.ISMassFound(~check) = [];
-            obj.ISRT = ISData.FeatIdentifiers(:,2)';
-            obj.ISValue = ISData.IntensityStorage';
-
-            %check wich IS remains
-            foundMassID = false(size(obj.ISMass));
-            for n = 1:width(obj.ISMass)
-                ISmz = obj.ISMass(1,n);
-                switch obj.mzTolUnit
-                    case "Da"
-                        foundMassID(n) = any(abs(obj.ISMassFound-ISmz) <= obj.mzTol);
-                    case "ppm"
-                        foundMassID(n) = any(abs(obj.ISMassFound-ISmz)./ISmz*10^6 <= obj.mzTol);
-                end
-            end
-            obj.ISMass = sort(obj.ISMass(foundMassID),2,'ascend');
-            obj.ISdelta = obj.ISMass-obj.ISMassFound;
-            if all(~foundMassID)
-                % if no IS mass found, throw warning and exit
-                header="Skipping ISTD Normalization";
-                message = ["Reason: Every internal standard is missing peaks in one or more samples.","Check the specified retention time or increase the time tolerance"];
-                fig = uifigure;
-                uialert(fig,message,header,'Icon','warning');
-                return
-            elseif any(~foundMassID)
-                % if some IS mass is not found, throw warning and continue
-                header="Skipping ISTD No. ";
-                for i=1:size(foundMassID,2)
-                    if foundMassID(i) == 0
-                        header = header + i + ", ";
-                    end
-                end
-                message = ["Reason: Internal standard is missing peaks in one or more samples","Check the specified retention time or increase the time tolerance"];
-                fig = uifigure;
-                uialert(fig,message,header,'Icon','warning');
-            end
-        end
-
-        function IntResults = CWTIntegrate(obj,varargin)
-            if isscalar(varargin)
-                Index = varargin{1};
-                Mat = obj.TempDataFileObj.ROIMat;
-                Mat = Mat(:,Index);
-            else
-                Mat = sum(obj.TempDataFileObj.ROIMat,2);
-            end
-
-            minSN = obj.minSignalNoise;
-
-            % prepare wavelet filter-bank
-            MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
-            MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
-            times = obj.TempDataFileObj.timeVec;
-
-            % calculate EIC derivatives and store as sparse
-            smoothed = smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1);
-            Noise = std(Mat-smoothed);
-            Diff2 = zeros(length(times),size(Mat,2));
-            Diff2(1:end-2,:) = diff(smoothed,2);
-            numEIC = size(Mat,2);
-            IntResults=cell(8,numEIC); %preallocate output
-            FilterBank = cwtfilterbank("SignalLength",size(Diff2,1),"WaveletParameters",[3 4],"VoicesPerOctave",8,"SamplingPeriod",seconds(obj.ScanFrequency),"PeriodLimits",[seconds(obj.minWidth) seconds(obj.maxWidth)]);% prepare wavelet filterbank
-            parfor id=1:numEIC
-                peaks = AutoCWT(Diff2(:,id),smoothed(:,id),FilterBank);
-                % Correct Peak Borders
-                peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
-                [peaks,tempStorage] = FilterPeaks(peaks,MinPWDataPoints,MaxPWDataPoints,minSN,Noise(:,id),Mat(:,id));
-                % integrate and store results
-                IntResults(:,id) = FinalizeIntegrationOutput(peaks,tempStorage,Mat(:,id),times);
-            end
-        end
-
         function IntegrationData = AssignRT2SampleFile(obj,IntegrationData)
             test=cumsum(obj.nScansPadded)';
             nFiles = length(obj.nScansPadded);
-            fileID = zeros(size(IntegrationData.peakLocation));
-            peakLocation = IntegrationData.peakLocation;
-            parfor n = 1:numel(fileID)
-                val = peakLocation(n,1);
-                val = val < test;
-                val = sum(val,2)-1;
-                fileID(n,1) = abs(val-nFiles);
+            parfor f = 1:length(IntegrationData)
+                fileID = zeros(size(IntegrationData(f).peakLocation));
+                peakLocation = IntegrationData(f).peakLocation;
+                for n = 1:numel(fileID)
+                    val = peakLocation(n,1);
+                    val = val < test;
+                    val = sum(val,2)-1;
+                    fileID(n,1) = abs(val-nFiles);
+                end
+                IntegrationData(f).fileID = fileID;
             end
-            IntegrationData.fileID = fileID;
         end
 
         function obj = ISNormalize(obj)
@@ -1167,24 +995,7 @@ classdef RawData
             obj.TempDataFileObj.timeVec = round(vertcat(time{:}),1);
         end
 
-        function [PeakData,TimeData,PrecursorData,ColType,ColEnergy]= MS2CleanUp(obj,PeakData,TimeData,PrecursorData,ColType,ColEnergy)
-            %remove empty scans and rescale intensities
-            %% Clean Data
-            for k = 1 : size(PeakData,1)
-                Peak = PeakData{k,1};
-                idx = cellfun(@isempty,Peak);
-                Peak(idx,:) = [];
-                TimeData{k,1}(idx,:) = [];
-                PrecursorData{k,1}(idx,:) = [];
-                ColType{k,1}(idx,:) = [];
-                ColEnergy{k,1}(idx,:) = [];
-                parfor n = 1:numel(Peak)
-                    Peak{n,1}(:,2) = Peak{n,1}(:,2)/max(Peak{n,1}(:,2));
-                end
-                PeakData{k,1}=Peak;
 
-            end
-        end
 
         function [output,obj] = BuildStorageArrays(obj,IntegrationResults,varargin)
             nFiles = numel(obj.Files);
@@ -1439,95 +1250,113 @@ classdef RawData
             end
         end
 
-        function IntResults = FilterPeaks(obj,IntResults,MinPWDataPoints,MaxPWDataPoints,maxSN,Noise)
+        function IntResults = FilterPeaks(obj,IntResults,Noise)
             % Filters identified peaks from AutoCWT
-            %check empty input
-            if isempty(IntResults.peakLocation)
-                return
+            MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
+            MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
+            maxSN = obj.minSignalNoise;
+            
+            
+            parfor n = 1:length(IntResults)
+                %check empty input
+                if isempty(IntResults(n).peakLocation)
+                    continue
+                end
+
+                %% Peak filter
+                %remove duplicate peaks
+                out = unique([IntResults(n).peakLocation,IntResults(n).peakStartLocation,IntResults(n).peakEndLocation,IntResults(n).peakHeight,],'rows','stable');
+                IntResults(n).peakLocation = out(:,1);
+                IntResults(n).peakStartLocation = out(:,2);
+                IntResults(n).peakEndLocation = out(:,3);
+                IntResults(n).peakHeight = out(:,4);
+
+                %preallocate indexarray
+                idx = false(size(IntResults(n).peakLocation));
+
+                %remove peaks with wrong boundaries
+                id = IntResults(n).peakStartLocation>=IntResults(n).peakEndLocation;
+                idx = idx | id;
+
+                %remove peaks with height = 0
+                id = IntResults(n).peakHeight == 0;
+                idx = idx | id;
+
+                %remove peaks with bad Peak asymmetry
+                symmetry = (IntResults(n).peakEndLocation - IntResults(n).peakLocation)./(IntResults(n).peakLocation - IntResults(n).peakStartLocation);
+                id = symmetry<0.3 | symmetry>3;
+                idx = idx | id;
+
+                %less than minimum peak width
+                id = IntResults(n).peakEndLocation-IntResults(n).peakStartLocation < MinPWDataPoints;
+                IntResults(n).minWidthFiltered=sum(id);
+                idx = idx | id;
+
+                %more than maximum peak width
+                id=IntResults(n).peakEndLocation - IntResults(n).peakStartLocation > MaxPWDataPoints;
+                IntResults(n).maxWidthFiltered=sum(id);
+                idx = idx | id;
+
+                %S/N peak rejection
+                IntResults(n).signal2Noise = IntResults(n).peakHeight ./ Noise(n);
+                id = IntResults(n).signal2Noise < maxSN;
+                IntResults(n).signal2NoiseFiltered = sum(id);
+                idx = idx | id;
+
+                % remove identified peaks
+                IntResults(n).peakLocation(idx) = [];
+                IntResults(n).peakStartLocation(idx) = [];
+                IntResults(n).peakEndLocation(idx) = [];
+                IntResults(n).peakHeight(idx) = [];
+                IntResults(n).signal2Noise(idx) = [];
             end
 
-            %% Peak filter
-            %remove duplicate peaks
-            out = unique([IntResults.peakLocation,IntResults.peakStartLocation,IntResults.peakEndLocation,IntResults.peakHeight,],'rows','stable');
-            IntResults.peakLocation = out(:,1);
-            IntResults.peakStartLocation = out(:,2);
-            IntResults.peakEndLocation = out(:,3);
-            IntResults.peakHeight = out(:,4);
+                %calculate peak entropy and filter after first filter round
+                % possible wrong peak bounderies causes errors
+                IntResults = obj.CalculatePeakEntropy(IntResults);
 
-            %preallocate indexarray
-            idx = false(size(IntResults.peakLocation));
+                %determine entropy bins
+                if obj.entropyFilter == true
+                    allEntropy = vertcat(IntResults(:).entropy);
+                    [~,binedges] = histcounts(allEntropy,'BinMethod','auto');
+                    switch obj.entropyStrength
+                        case "lax"
+                            medianEntropy = binedges(10);
+                        case "medium"
+                            medianEntropy = binedges(6);
+                        case "strict"
+                            medianEntropy = binedges(2);
+                    end
 
-            %remove peaks with wrong boundaries
-            id = IntResults.peakStartLocation>=IntResults.peakEndLocation;
-            idx = idx | id;
+                else
+                    medianEntropy = 1;
+                end
 
-            %remove peaks with height = 0
-            id = IntResults.peakHeight == 0;
-            idx = idx | id;
+                parfor n = 1:length(IntResults)
+                    %check empty input
+                    if isempty(IntResults(n).peakLocation)
+                        continue
+                    end
+                    %entropy peak rejection
+                    id = IntResults(n).entropy > medianEntropy;
+                    IntResults(n).entropyFiltered = sum(id);
 
-            %remove peaks with bad Peak asymmetry
-            symmetry = (IntResults.peakEndLocation - IntResults.peakLocation)./(IntResults.peakLocation - IntResults.peakStartLocation);
-            id = symmetry<0.3 | symmetry>3;
-            idx = idx | id;
+                    IntResults(n).peakLocation(id) = [];
+                    IntResults(n).peakStartLocation(id) = [];
+                    IntResults(n).peakEndLocation(id) = [];
+                    IntResults(n).peakHeight(id) = [];
+                    IntResults(n).signal2Noise(id) = [];
+                end
 
-            %less than minimum peak width
-            id = IntResults.peakEndLocation-IntResults.peakStartLocation < MinPWDataPoints;
-            IntResults.minWidthFiltered=sum(id);
-            idx = idx | id;
-
-            %more than maximum peak width
-            id=IntResults.peakEndLocation - IntResults.peakStartLocation > MaxPWDataPoints;
-            IntResults.maxWidthFiltered=sum(id);
-            idx = idx | id;
-
-            %S/N peak rejection
-            IntResults.signal2Noise = IntResults.peakHeight ./ Noise;
-            id = IntResults.signal2Noise < maxSN;
-            IntResults.signal2NoiseFiltered = sum(id);
-            idx = idx | id;
-
-            % remove identified peaks
-            IntResults.peakLocation(idx) = [];
-            IntResults.peakStartLocation(idx) = [];
-            IntResults.peakEndLocation(idx) = [];
-            IntResults.peakHeight(idx) = [];
-            IntResults.signal2Noise(idx) = [];
-        end
-
-        function OutArray = FileSortPeaks(obj,InArray)
-            %% sort struct contents to original file and remove duplicate Features within one measurement
-
-            %preallocate output Feature struct
-            OutArray = struct( ...
-                "mass",cell(1), ...
-                "peakLocation",cell(1), ...
-                "peakRetentionTime",cell(1), ...
-                "peakStartLocation",cell(1), ...
-                "peakEndLocation",cell(1), ...
-                "peakHeight",cell(1), ...
-                "peakArea",cell(1), ...
-                "entropy",cell(1), ...
-                "signal2Noise",cell(1), ...
-                "spectrumMS2",cell(1), ...
-                "XIC",InArray.XIC, ...
-                "fileID",cell(1));
-
-            %sort
-            for fileID = 1:max(InArray.fileID)
-                id = InArray.fileID == fileID;
-                OutArray.mass{fileID} = InArray.mass(id);
-                OutArray.peakLocation{fileID} = InArray.peakLocation(id);
-                OutArray.peakRetentionTime{fileID} = InArray.peakRetentionTime(id);
-                OutArray.peakStartLocation{fileID} = InArray.peakStartLocation(id);
-                OutArray.peakEndLocation{fileID} = InArray.peakEndLocation(id);
-                OutArray.peakHeight{fileID} = InArray.peakHeight(id);
-                OutArray.peakArea{fileID} = InArray.peakArea(id);
-                OutArray.entropy{fileID} = InArray.entropy(id);
-                OutArray.signal2Noise{fileID} = InArray.signal2Noise(id);
-                OutArray.spectrumMS2{fileID} = InArray.spectrumMS2(id);
-                OutArray.fileID{fileID} = InArray.fileID(id);
+            %remove features without peaks
+            id = false(length(IntResults),1);
+            for n = 1:length(IntResults)
+                id(n) = isempty(IntResults(n).peakLocation);
             end
+            IntResults(id) = [];
+
         end
+
 
         function outputStruct = FindOriginalScans(obj,inputStruct)
             outputStruct = inputStruct;
@@ -1574,43 +1403,133 @@ classdef RawData
                 outputStruct(n).spectrumMS1 = avgSpectra;
             end
         end
+
+        
     end
-    %%
-    methods(Static)
-        function IntegrationData = FilterbyEntropy(IntegrationData,MedianEntropy)
-            %removes peaks with high entropy
-            idx = IntegrationData.entropy > MedianEntropy;
-            IntegrationData.mass(idx) = [];
-            IntegrationData.peakLocation(idx) = [];
-            IntegrationData.peakRetentionTime(idx) = [];
-            IntegrationData.peakStartLocation(idx) = [];
-            IntegrationData.peakEndLocation(idx) = [];
-            IntegrationData.peakHeight(idx) = [];
-            IntegrationData.peakArea(idx) = [];
-            IntegrationData.entropy(idx) = [];
-            IntegrationData.signal2Noise(idx) = [];
-            IntegrationData.spectrumMS2(idx) = [];
-            IntegrationData.entropyFiltered = sum(idx);
+
+    methods (Static)
+
+        function IntegrationStruct = CalculatePeakEntropy(IntegrationStruct)
+            % Calculates Peak entropy for all peaks
+            for f = 1:length(IntegrationStruct)
+                %check for no peaks, then skip iteration
+                if isempty(IntegrationStruct(f).peakStartLocation)
+                    continue
+                end
+                D = diff(IntegrationStruct(f).XIC);
+                p = zeros(size(IntegrationStruct(f).peakLocation));
+                for n = 1:numel(p)
+                    %extract peak range
+                    Peak = D(IntegrationStruct(f).peakStartLocation(n,:):IntegrationStruct(f).peakEndLocation(n,:));
+                    maxidx = IntegrationStruct(f).peakLocation(n)-IntegrationStruct(f).peakStartLocation(n);
+                    % check normal or variant point , variant point = 1
+                    premax = Peak(1:maxidx-1)<0;
+                    postmax = Peak(maxidx+1:end)>0;
+                    VarPoints = [premax; false; postmax];
+                    %calculate probability of variant point
+                    p(n,1) = sum(VarPoints)/numel(VarPoints);
+                end
+                %calculate entropy
+                PeakEntropy = -p.*log2(p)-(1-p).*log2(1-p);
+                PeakEntropy(isnan(PeakEntropy)) = 0;
+                %store values
+                IntegrationStruct(f).entropy = PeakEntropy;
+            end
         end
 
-        function [values,sumRemoved]=Removify(values,found)
-            %removes confirmed Adduct from Input list and stores number of
-            %removed peaks
-            sumRemoved = zeros(1,size(found,2));
-            for i=1:size(found,2)
-                idx = any(horzcat(found{:,i}),2);
-                if isempty(idx)==false
-                    values{1,i}(idx,:)=[];
-                    values{2,i}(idx,:)=[];
-                    values{3,i}(idx,:)=[];
-                    values{4,i}(idx,:)=[];
-                    sumRemoved(i)=sum(idx);
-                else
-                    sumRemoved(i) = 0;
+        function OutArray = FileSortPeaks(InArray)
+            %% sort struct contents to original file
+
+            %preallocate output Feature struct
+            OutArray = InArray;
+            
+            nFiles = max(vertcat(InArray(:).fileID));
+            %sort
+            parfor n = 1:length(InArray)
+                %preallocate temporary cells
+                massCell = cell(1,nFiles);
+                peakLcell = cell(1,nFiles);
+                peakRTcell = cell(1,nFiles);
+                peakSLcell = cell(1,nFiles);
+                peakELcell = cell(1,nFiles);
+                peakHcell = cell(1,nFiles);
+                peakAcell = cell(1,nFiles);
+                entroCell = cell(1,nFiles);
+                s2ncell = cell(1,nFiles);
+                sMS2cell = cell(1,nFiles);
+                fileidcell = cell(1,nFiles);
+
+                id = InArray(n).fileID;
+                for fileID = 1:nFiles
+                    % sort peaks into respective file cells
+                    idx = id == fileID;
+                    massCell{fileID} = InArray(n).mass(idx);
+                    peakLcell{fileID} = InArray(n).peakLocation(idx);
+                    peakRTcell{fileID} = InArray(n).peakRetentionTime(idx);
+                    peakSLcell{fileID} = InArray(n).peakStartLocation(idx);
+                    peakELcell{fileID} = InArray(n).peakEndLocation(idx);
+                    peakHcell{fileID} = InArray(n).peakHeight(idx);
+                    peakAcell{fileID} = InArray(n).peakArea(idx);
+                    entroCell{fileID} = InArray(n).entropy(idx);
+                    s2ncell{fileID} = InArray(n).signal2Noise(idx);
+                    sMS2cell{fileID} = InArray(n).spectrumMS2(idx);
+                    fileidcell{fileID} = InArray(n).fileID(idx);
                 end
+                %store temp cells into output
+                OutArray(n).mass = massCell;
+                OutArray(n).peakLocation = peakLcell;
+                OutArray(n).peakRetentionTime = peakRTcell;
+                OutArray(n).peakStartLocation = peakSLcell;
+                OutArray(n).peakEndLocation = peakELcell;
+                OutArray(n).peakHeight = peakHcell;
+                OutArray(n).peakArea = peakAcell;
+                OutArray(n).entropy = entroCell;
+                OutArray(n).signal2Noise = s2ncell;
+                OutArray(n).spectrumMS2 = sMS2cell;
+                OutArray(n).fileID = fileidcell;
             end
-            sumRemoved = sum(sumRemoved,"all");
         end
+
+
+        function [PeakData,TimeData,PrecursorData,ColType,ColEnergy]= MS2CleanUp(PeakData,TimeData,PrecursorData,ColType,ColEnergy)
+            %remove empty scans and rescale intensities
+            %% Clean Data
+            for k = 1 : size(PeakData,1)
+                Peak = PeakData{k,1};
+                idx = cellfun(@isempty,Peak);
+                Peak(idx,:) = [];
+                TimeData{k,1}(idx,:) = [];
+                PrecursorData{k,1}(idx,:) = [];
+                ColType{k,1}(idx,:) = [];
+                ColEnergy{k,1}(idx,:) = [];
+                parfor n = 1:numel(Peak)
+                    Peak{n,1}(:,2) = Peak{n,1}(:,2)/max(Peak{n,1}(:,2));
+                end
+                PeakData{k,1}=Peak;
+            end
+        end
+
+        function integrationStruct = FinalizeIntegrationOutput(integrationStruct,times)
+            % Performs Integration of found Peaks and gathers retention times
+
+            %check for empty struct
+            if isempty(integrationStruct)
+                return
+            end
+
+            parfor nfeats = 1:length(integrationStruct)
+                EIC = full(integrationStruct(nfeats).XIC);
+                areas = zeros(size(integrationStruct(nfeats).peakLocation));
+
+                for n=1:numel(areas)
+                    areas(n,1)=trapz(EIC(integrationStruct(nfeats).peakStartLocation(n,1):integrationStruct(nfeats).peakEndLocation(n,1)));
+                end
+
+                integrationStruct(nfeats).peakArea = areas;
+                integrationStruct(nfeats).peakRetentionTime = times(integrationStruct(nfeats).peakLocation);
+            end
+        end
+
 
     end
 end

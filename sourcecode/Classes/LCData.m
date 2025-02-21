@@ -143,6 +143,8 @@ classdef LCData < RawData
                 obj = obj.AverageBLK(nBLK);
                 nData = size(obj.TempDataFileObj.ROICells,1); % update number of matrices
             end
+
+            %Common Contaminant filter
             if obj.ContaminantFilter == true
                 obj = obj.removeContaminants;
             end
@@ -179,6 +181,7 @@ classdef LCData < RawData
                 end
                 obj.TempDataFileObj.ROICells = peakCells;
             end
+            
             % pad arrays with Maximum peak width*3 Scans to eliminate
             % integration interference between matrices
             obj = obj.FinalizeROI;
@@ -212,48 +215,33 @@ classdef LCData < RawData
 
             % Integrate all Peaks
             IDX = true(1,size(obj.TempDataFileObj.ROIMat,2));
-            IntegrationData = obj.CWTIntegrate(IDX);
-            %Calculate number of removed features
-            obj.MinWidthFiltered = sum(vertcat(IntegrationData{5,:}),"all");
-            obj.MaxWidthFiltered = sum(vertcat(IntegrationData{6,:}),"all");
-            obj.SNFiltered = sum(vertcat(IntegrationData{7,:}),"all");
-            IntegrationData(5:7,:) = [];
-            % remove ROI masses with no found peaks
-            IDX=cellfun(@isempty,IntegrationData(4,:));
-            IntegrationData(:,IDX)=[];
-            obj.TempDataFileObj.ROImzVec(IDX)=[];
-            obj.TempDataFileObj.ROIMat(:,IDX)=[];
-            % calculate median entropy
-            mEntropy=vertcat(IntegrationData{4,:});
-            if ~isempty(mEntropy)
-                mEntropy(:,2)=[];
-            end
-            obj.MedianEntropy=median(mEntropy,'omitnan');
-            % Apply Entropy filter
-            if obj.entropyFilter == true
-                [IntegrationData,obj.EntropyFiltered,EmptyColumns] = obj.FilterbyEntropy(IntegrationData,obj.MedianEntropy);
-                obj.TempDataFileObj.ROIMat(:,EmptyColumns)=[];
-                obj.TempDataFileObj.ROImzVec(EmptyColumns)=[];
-            end
-            IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
+            IntegrationData = obj.LCIntegrate(IDX);
 
-            % remove adducts
-            if obj.AdductFilter == true
-                [IntegrationData,obj] = obj.FilterAdducts(IntegrationData);
-            end
+            IntegrationData = obj.FinalizeIntegrationOutput(IntegrationData,obj.TempDataFileObj.timeVec);
+            IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
+            IntegrationData = obj.FileSortPeaks(IntegrationData);
+            IntegrationData = obj.mergeDuplicatePeaksWithinFile(IntegrationData);
+
+            %%%%%%%
+            % % remove adducts
+            % if obj.AdductFilter == true
+            %     [IntegrationData,obj] = obj.FilterAdducts(IntegrationData);
+            % end
+            %%%%%%%
+            
+            %gather MS2 spectrum
+            %IntegrationData.spectrumMS2 = obj.FinalizeEISpectra(IntegrationData.spectrumMS2);
 
             % Build Storage Arrays and filter by number of occurences
             [Output,obj] = obj.BuildStorageArrays(IntegrationData);
 
-            %check for empty Output
-            if isempty(Output.FeatIdentifiers)
-                Output.FeatIdentifiers(1,1:2) = 0;
+             %check for empty Output
+            if isempty(Output.dataSize)
+                Output.dataSize = 0;
             end
-            Output.FeatIdentifiers(:,2) = round(Output.FeatIdentifiers(:,2),1);
+
             Output = obj.GroupAndSampleScaling(Output);
-            Output.DataSize = size(Output.IntensityStorage,1);
-            Output.FoundInGroup = repmat(obj.GroupName,size(Output.FeatIdentifiers,1),1);
-            Output.SampleNames = obj.FileNames;
+
             obj.Output = Output;
             if ~exist("mode","var") %save results if batch mode
                 %build ResultDataFile
@@ -310,7 +298,7 @@ classdef LCData < RawData
             obj.ISMass(~foundMassID)=[];
             % extract relevant columns and perform Peak Picking and
             % Integration
-            ISIntegrationData = obj.CWTIntegrate(ISid);
+            ISIntegrationData = obj.LCIntegrate(ISid);
             % remove possible empty columns
             id = cellfun(@isempty,ISIntegrationData(1,:));
             ISIntegrationData(:,id) = [];
@@ -411,8 +399,27 @@ classdef LCData < RawData
             end
         end
 
-        function IntResults = CWTIntegrate(obj,Index)
-            %output preallocation
+        function IntResults = LCIntegrate(obj,Index)
+            %gather data            
+            Mat = obj.TempDataFileObj.ROIMat;
+            Mat = Mat(:,Index);
+            mzVec = obj.TempDataFileObj.ROImzVec;
+            times = obj.TempDataFileObj.timeVec;
+
+            % calculate EIC derivatives and store as sparse
+            smoothed = smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1);
+            Diff2 = zeros(length(times),size(Mat,2));
+            Diff2(1:end-2,:) = diff(smoothed,2);
+            numEIC = size(Mat,2);
+
+            % prepare wavelet filter-bank
+            FilterBank = cwtfilterbank("SignalLength",size(Diff2,1), ...
+                "WaveletParameters",[3 4], ...
+                "VoicesPerOctave",8, ...
+                "SamplingPeriod",seconds(obj.ScanFrequency), ...
+                "PeriodLimits",[seconds(obj.minWidth) seconds(obj.maxWidth)]);
+            
+            %preallocate storage struct
             IntResults = struct( ...
                 "mass",[], ...
                 "peakLocation",[], ...
@@ -430,118 +437,26 @@ classdef LCData < RawData
                 "spectrumMS2",[], ...
                 "XIC",[], ...
                 "fileID",[]);
-            Mat = obj.TempDataFileObj.ROIMat;
-            Mat = Mat(:,Index);
-            mzVec = obj.TempDataFileObj.ROImzVec;
-            minSN = obj.minSignalNoise;
+            IntResults = repmat(IntResults,numEIC,1);
 
-            % prepare wavelet filter-bank
-            MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
-            MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
-            times = obj.TempDataFileObj.timeVec;
-
-            % calculate EIC derivatives and store as sparse
-            smoothed = smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1);
-            noise = std(Mat-smoothed);
-            Diff2 = zeros(length(times),size(Mat,2));
-            Diff2(1:end-2,:) = diff(smoothed,2);
-            numEIC = size(Mat,2);
-            FilterBank = cwtfilterbank("SignalLength",size(Diff2,1),"WaveletParameters",[3 4],"VoicesPerOctave",8,"SamplingPeriod",seconds(obj.ScanFrequency),"PeriodLimits",[seconds(obj.minWidth) seconds(obj.maxWidth)]);% prepare wavelet filterbank
-            for id=1:numEIC
+            parfor id = 1:numEIC
                 peaks = AutoCWT(Diff2(:,id),smoothed(:,id),FilterBank);
+                eic = Mat(:,id);
                 % Correct Peak Borders
-                peaks = CWTBorderCorrection(peaks,Mat(:,id),smoothed(:,id));
+                peaks = CWTBorderCorrection(peaks,eic,smoothed(:,id));
                 IntResults(id).mass = mzVec(id);
                 IntResults(id).peakLocation = peaks(:,1);
                 IntResults(id).peakStartLocation = peaks(:,2);
                 IntResults(id).peakEndLocation = peaks(:,3);
                 IntResults(id).peakHeight = peaks(:,4);
-                IntResults(id) = obj.FilterPeaks(IntResults(id),MinPWDataPoints,MaxPWDataPoints,minSN,noise(id));
-                % entropy calculation
-                IntResults(id).entropy = CalculatePeakEntropy(IntResults(id),full(Mat(:,id)));
+                %store EIC
+                IntResults(id).XIC = eic;
             end
-           
-            
-            IntResults = FinalizeIntegrationOutput(IntResults,currentTIC,currentTime);
+            %filtere found peaks
+            noise = std(Mat-smoothed);
+            IntResults = obj.FilterPeaks(IntResults,noise);
         end
 
-        function IntResults = FilterPeaks(obj,IntResults,MinPWDataPoints,MaxPWDataPoints,maxSN,Noise)
-            % Filters identified peaks from AutoCWT
-            for n = 1:length(IntResults)
-                %check empty input
-                if isempty(IntResults(n).peakLocation)
-                    continue
-                end
-
-                %% Peak filter
-                %remove duplicate peaks
-                out = unique([IntResults(n).peakLocation,IntResults(n).peakStartLocation,IntResults(n).peakEndLocation,IntResults(n).peakHeight,],'rows','stable');
-                IntResults(n).peakLocation = out(:,1);
-                IntResults(n).peakStartLocation = out(:,2);
-                IntResults(n).peakEndLocation = out(:,3);
-                IntResults(n).peakHeight = out(:,4);
-
-                %preallocate indexarray
-                idx = false(size(IntResults(n).peakLocation));
-
-                %remove peaks with wrong boundaries
-                id = IntResults(n).peakStartLocation>=IntResults(n).peakEndLocation;
-                idx = idx | id;
-
-                %remove peaks with height = 0
-                id = IntResults(n).peakHeight == 0;
-                idx = idx | id;
-
-                %remove peaks with bad Peak asymmetry
-
-                symmetry = (IntResults(n).peakEndLocation - IntResults(n).peakLocation)./(IntResults(n).peakLocation - IntResults(n).peakStartLocation);
-                id = symmetry<0.3 | symmetry>3;
-                idx = idx | id;
-
-                %less than minimum peak width
-                id = IntResults(n).peakEndLocation-IntResults(n).peakStartLocation < MinPWDataPoints;
-                IntResults(n).minWidthFiltered=sum(id);
-                idx = idx | id;
-
-                %more than maximum peak width
-                id=IntResults(n).peakEndLocation - IntResults(n).peakStartLocation > MaxPWDataPoints;
-                IntResults(n).maxWidthFiltered=sum(id);
-                idx = idx | id;
-
-                %S/N peak rejection
-                IntResults(n).signal2Noise = IntResults(n).peakHeight ./ Noise(n);
-                id = IntResults(n).signal2Noise < maxSN;
-                IntResults(n).signal2NoiseFiltered = sum(id);
-                idx = idx | id;
-
-                % remove identified peaks
-                IntResults(n).peakLocation(idx) = [];
-                IntResults(n).peakStartLocation(idx) = [];
-                IntResults(n).peakEndLocation(idx) = [];
-                IntResults(n).peakHeight(idx) = [];
-                IntResults(n).signal2Noise(idx) = [];
-            end
-        end
-
-
-        function [PeakData,TimeData,PrecursorData,ColType,ColEnergy]= MS2CleanUp(obj,PeakData,TimeData,PrecursorData,ColType,ColEnergy)
-            %remove empty scans and rescale intensities
-            %% Clean Data
-            for k = 1 : size(PeakData,1)
-                Peak = PeakData{k,1};
-                idx = cellfun(@isempty,Peak);
-                Peak(idx,:) = [];
-                TimeData{k,1}(idx,:) = [];
-                PrecursorData{k,1}(idx,:) = [];
-                ColType{k,1}(idx,:) = [];
-                ColEnergy{k,1}(idx,:) = [];
-                parfor n = 1:numel(Peak)
-                    Peak{n,1}(:,2) = Peak{n,1}(:,2)/max(Peak{n,1}(:,2));
-                end
-                PeakData{k,1}=Peak;
-
-            end
-        end
 
     end
 end
