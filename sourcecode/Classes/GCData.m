@@ -256,7 +256,7 @@ classdef GCData < RawData
             tics = sum(obj.TempDataFileObj.ROIMat,2);
             %tics = mat2cell(tics,obj.nScansPadded);
             times = obj.TempDataFileObj.timeVec;
-            IntResults.XIC = [tics,times];
+            IntResults.XIC = [times,tics];
             %gather parameters
             currentTIC = full(tics);
             currentTime = full(times);

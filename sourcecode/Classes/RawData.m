@@ -1122,7 +1122,7 @@ classdef RawData
             allScans = vertcat(allScans{:});
             numFiles = numel(obj.Files);
 
-            for n = 1: length(inputStruct)
+            parfor n = 1: length(inputStruct)
                 avgSpectra = cell(1,numFiles);
                 borders = inputStruct(n).peakBorders;
 
@@ -1132,7 +1132,7 @@ classdef RawData
                         continue
                     end
                     %select spectra in peak range
-                    scans = allScans(borders(:,f));
+                    scans = allScans(borders(1,f):borders(2,f));
                     %remove possible empty scans
                     scans(cellfun(@isempty, scans)) = [];
                     if numel(scans) > 1 %average scan if multiple are present
@@ -1164,7 +1164,7 @@ classdef RawData
                 if isempty(IntegrationStruct(f).peakStartLocation)
                     continue
                 end
-                D = diff(IntegrationStruct(f).XIC);
+                D = diff(IntegrationStruct(f).XIC(:,2));
                 p = zeros(size(IntegrationStruct(f).peakLocation));
                 for n = 1:numel(p)
                     %extract peak range

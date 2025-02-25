@@ -57,7 +57,9 @@ classdef LCData < RawData
                     [peakTemp,timeTemp] = DataCleanUp(peakTemp,timeTemp);
                 end
                 %convert from pseudo molecular mass to molecular mass
-                peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n});
+                if Level == 1
+                    peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n});
+                end
                 Peaks{n,1} = peakTemp;
                 times{n,1} = timeTemp;
             end
@@ -219,7 +221,6 @@ classdef LCData < RawData
 
             IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
             IntegrationData = obj.FileSortPeaks(IntegrationData);
-            IntegrationData = obj.mergeDuplicatePeaksWithinFile_LC(IntegrationData);
 
             %%%%%%%
             % % remove adducts
@@ -235,7 +236,7 @@ classdef LCData < RawData
             Output = obj.GroupAndSampleScaling(Output);
 
             %gather MS2 spectra
-            Output = obj.GatherFragmentSpectra(Output);
+            Output = obj.GatherMS2Spectra(Output);
 
             %confirm same feature by MS2 comparison
 
@@ -450,7 +451,7 @@ classdef LCData < RawData
                 IntResults(id).peakEndLocation = peaks(:,3);
                 IntResults(id).peakHeight = peaks(:,4);
                 %store EIC
-                IntResults(id).XIC = eic;
+                IntResults(id).XIC = [times,eic];
             end
             %filtere found peaks
             noise = std(Mat-smoothed);
@@ -458,19 +459,7 @@ classdef LCData < RawData
             IntResults = obj.FinalizeIntegrationOutput(IntResults,times);
         end
 
-        function outArray = mergeDuplicatePeaksWithinFile_LC(obj,inArray)
 
-            rtTol = obj.RTTol;
-            outArray = inArray;
-
-            for n = 1:length(inArray) %sample loop
-                
-                for file = 1:numel(inArray(n).peakRetentionTime)
-                    
-
-                end
-            end
-        end
 
         function [output,obj] = BuildStorageArrays_LC(obj,IntegrationResults,varargin)
             nFiles = numel(obj.Files);
@@ -489,40 +478,40 @@ classdef LCData < RawData
                 "separationType",string);
 
             %store group infos
-            output.minWidthFiltered = IntegrationResults(1).minWidthFiltered;
-            output.maxWidthFiltered = IntegrationResults(1).maxWidthFiltered;
-            output.entropyFiltered = IntegrationResults(1).entropyFiltered;
-            output.signal2NoiseFiltered = IntegrationResults(1).signal2NoiseFiltered;
+            output.minWidthFiltered = sum(vertcat(IntegrationResults(:).minWidthFiltered));
+            output.maxWidthFiltered = sum(vertcat(IntegrationResults(:).maxWidthFiltered));
+            output.entropyFiltered = sum(vertcat(IntegrationResults(:).entropyFiltered));
+            output.signal2NoiseFiltered = sum(vertcat(IntegrationResults(:).signal2NoiseFiltered));
             output.fileNames = obj.FileNames;
-
-            XIC = IntegrationResults(1).XIC;
+            output.groupName = obj.GroupName;
+            output.separationType = obj.SeparationType;
 
             %remove unnecessary fields from input struct
-            IntegrationResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered","XIC"]);
+            IntegrationResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
 
-            featureStruct = struct(...
+            emptyStruct = struct(...
                 "featID",strings,...
                 "mass_measured",[],...
-                "retentionTime",[],...
+                "retentionTime",NaN,...
                 "adductType",strings,...
                 "mass_corrected",[],...
                 "formula",strings,...
-                "peakHeights",zeros(0,nFiles),...
-                "peakAreas",zeros(0,nFiles),...
-                "peakLocations",zeros(0,nFiles),...
-                "peakBorders",zeros(0,nFiles),...
-                "retentionTimes",zeros(0,nFiles),...
-                "signal2Noise",zeros(0,nFiles),...
-                "entropy",zeros(0,nFiles),...
+                "peakHeights",NaN(1,nFiles),...
+                "peakAreas",NaN(1,nFiles),...
+                "peakLocations",NaN(1,nFiles),...
+                "peakBorders",NaN(2,nFiles),...
+                "retentionTimes",NaN(1,nFiles),...
+                "signal2Noise",NaN(1,nFiles),...
+                "entropy",NaN(1,nFiles),...
                 "XIC",cell(1),...
                 "spectrumMS1",cell(1),...
-                "spectrumMS2",cell(1));
+                "spectrumMS2",cell(1),...
+                "asymmetry",[]);
 
+            storedFeatures = cell(length(IntegrationResults),1);
 
             %gather tolerances
-            TimeTolerance = obj.RTTol;
-            mzTolerance = obj.mzTol;
-            mztolUnit = obj.mzTolUnit;
+            timeTolerance = obj.RTTol;
 
             if isscalar(varargin)
                 minDataPoints = nFiles;
@@ -534,111 +523,171 @@ classdef LCData < RawData
 
             %match features and store in feature struct
 
-            uniqueFeatures = [vertcat(IntegrationResults(:).mass),vertcat(IntegrationResults(:).peakRetentionTime)];
+            parfor featMass = 1:length(IntegrationResults)
+                currentFeatureStruct = emptyStruct;
+                currentFeatureStruct.mass_measured = IntegrationResults(featMass).mass;
+                currentFeatureStruct.XIC = IntegrationResults(featMass).XIC;
 
-            % over preallocat feature Storage
-            featureStruct = repmat(featureStruct,height(uniqueFeatures),1);
-            n = 0;
-            while ~isempty(uniqueFeatures)
-                n = n+1; disp(n)
-                currentFeature = uniqueFeatures(1,:);
-                % preallocate temp storages
-                emptyArray = NaN(1,nFiles);
-                areas = emptyArray;
-                heights = emptyArray;
-                retentionTimes = emptyArray;
-                peakLocation = emptyArray;
-                peakBorders = [emptyArray;emptyArray];
-                signal2Noise = emptyArray;
-                entropy = emptyArray;
-                spectrum = cell(1,nFiles);
-                xic = cell(1,nFiles);
+                numPeaks = numel(vertcat(IntegrationResults(featMass).peakLocation{:}));
 
-                %compare feature between files
-                for file = 1:nFiles
-                    switch mztolUnit
-                        case "Da"
-                            idm = abs(IntegrationResults(file).mass-currentFeature(1,1)) <= mzTolerance;
-                        case "ppm"
-                            idm = abs(IntegrationResults(file).mass-currentFeature(1,1))./currentFeature(1,1)*10^6 <= mzTolerance;
+                %unpack data
+                peakData = zeros(numPeaks,10);
+                peakData(:,1) = vertcat(IntegrationResults(featMass).peakLocation{:});
+                peakData(:,2) = vertcat(IntegrationResults(featMass).peakRetentionTime{:});
+                peakData(:,3) = vertcat(IntegrationResults(featMass).peakStartLocation{:});
+                peakData(:,4) = vertcat(IntegrationResults(featMass).peakEndLocation{:});
+                peakData(:,5) = vertcat(IntegrationResults(featMass).peakHeight{:});
+                peakData(:,6) = vertcat(IntegrationResults(featMass).peakArea{:});
+                peakData(:,7) = vertcat(IntegrationResults(featMass).entropy{:});
+                peakData(:,8) = vertcat(IntegrationResults(featMass).signal2Noise{:});
+                peakData(:,9) = vertcat(IntegrationResults(featMass).fileID{:});
+                peakData(:,10) = (peakData(:,4)-peakData(:,1))./(peakData(:,1)-peakData(:,3)); %asymmetry factor
+                
+                % preallocat current feature Storage
+                currentFeatureStruct = repmat(currentFeatureStruct,height(peakData),1);
+                
+                %store first new entry
+                currentFile = peakData(1,9);
+                currentFeatureStruct(1).peakLocations(currentFile) = peakData(1,1);
+                currentFeatureStruct(1).retentionTimes(currentFile) = peakData(1,2);
+                currentFeatureStruct(1).retentionTime = peakData(1,2);
+                currentFeatureStruct(1).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                currentFeatureStruct(1).peakHeights(currentFile) = peakData(1,5);
+                currentFeatureStruct(1).peakAreas(currentFile) = peakData(1,6);
+                currentFeatureStruct(1).entropy(currentFile) = peakData(1,7);
+                currentFeatureStruct(1).signal2Noise(currentFile) = peakData(1,8);
+                currentFeatureStruct(1).asymmetry = peakData(1,10);
+                peakData(1,:) = [];
+
+                %assign remaining peaks to features
+                while ~isempty(peakData) 
+
+                    currentRT = peakData(1,2);
+                    currentFile = peakData(1,9);
+                    currentAsymmetry = peakData(1,10);
+                    id = abs(vertcat(currentFeatureStruct(:).retentionTime)-currentRT)<=timeTolerance;
+                    matchingRT = sum(id);
+                    
+                    if matchingRT == 0 %no matching RT -> new Feature
+                        % first empty struct
+                        firstEmpty = find(isnan(vertcat(currentFeatureStruct(:).retentionTime)));
+                        firstEmpty = firstEmpty(1);
+                        currentFeatureStruct(firstEmpty).peakLocations(currentFile) = peakData(1,1);
+                        currentFeatureStruct(firstEmpty).retentionTimes(currentFile) = peakData(1,2);
+                        currentFeatureStruct(firstEmpty).retentionTime = peakData(1,2);
+                        currentFeatureStruct(firstEmpty).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                        currentFeatureStruct(firstEmpty).peakHeights(currentFile) = peakData(1,5);
+                        currentFeatureStruct(firstEmpty).peakAreas(currentFile) = peakData(1,6);
+                        currentFeatureStruct(firstEmpty).entropy(currentFile) = peakData(1,7);
+                        currentFeatureStruct(firstEmpty).signal2Noise(currentFile) = peakData(1,8);
+                        currentFeatureStruct(firstEmpty).asymmetry = peakData(1,10);
+                    
+                    elseif matchingRT == 1 %single feature -> store
+                        currentFeatureStruct(id).peakLocations(currentFile) = peakData(1,1);
+                        currentFeatureStruct(id).retentionTimes(currentFile) = peakData(1,2);
+                        currentFeatureStruct(id).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                        currentFeatureStruct(id).peakHeights(currentFile) = peakData(1,5);
+                        currentFeatureStruct(id).peakAreas(currentFile) = peakData(1,6);
+                        currentFeatureStruct(id).entropy(currentFile) = peakData(1,7);
+                        currentFeatureStruct(id).signal2Noise(currentFile) = peakData(1,8);
+                        %average retentionTime
+                        currentFeatureStruct(id).retentionTime = mean([currentFeatureStruct(id).retentionTime;peakData(1,2)],'omitnan');
+
+                    else %multiple matching features -> store based on asymmetry factor
+                        [~,idA] = min(vertcat(currentFeatureStruct(id).asymmetry)-currentAsymmetry);
+                        currentFeatureStruct(idA).peakLocations(currentFile) = peakData(1,1);
+                        currentFeatureStruct(idA).retentionTimes(currentFile) = peakData(1,2);
+                        currentFeatureStruct(idA).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                        currentFeatureStruct(idA).peakHeights(currentFile) = peakData(1,5);
+                        currentFeatureStruct(idA).peakAreas(currentFile) = peakData(1,6);
+                        currentFeatureStruct(idA).entropy(currentFile) = peakData(1,7);
+                        currentFeatureStruct(idA).signal2Noise(currentFile) = peakData(1,8);
+                        %average retentionTime
+                        currentFeatureStruct(idA).retentionTime = mean([currentFeatureStruct(idA).retentionTime;peakData(1,2)],'omitnan');
                     end
-                    idRT = abs(IntegrationResults(file).peakRetentionTime - currentFeature(1,2)) <= TimeTolerance;
-                    idx = idm & idRT;
-                    % handle matching peaks
-                    if sum(idx) == 0 %no matching peaks
-                        continue
-                    elseif sum(idx) > 1 %use peak with lower time tolerance
-                        [~,idmin] = min(abs(IntegrationResults(file).peakRetentionTime - currentFeature(1,2)));
-                        idx = false(size(idx));
-                        idx(idmin) = true;
-                    end
-                    %store found peak information
-                    areas(1,file) = IntegrationResults(file).peakArea(idx);
-                    heights(1,file) = IntegrationResults(file).peakHeight(idx);
-                    retentionTimes(1,file) = IntegrationResults(file).peakRetentionTime(idx);
-                    peakLocation(1,file) = IntegrationResults(file).peakLocation(idx);
-                    peakBorders(1,file) = IntegrationResults(file).peakStartLocation(idx);
-                    peakBorders(2,file) = IntegrationResults(file).peakEndLocation(idx);
-                    signal2Noise(1,file) = IntegrationResults(file).signal2Noise(idx);
-                    entropy(1,file) = IntegrationResults(file).entropy(idx);
-                    spectrum{1,file} = IntegrationResults(file).spectrumMS2(idx);
-                    xic{1,file} = XIC(peakBorders(1,file):peakBorders(1,file),:);
-
-                    %delete peaks from input struct
-                    IntegrationResults(file).mass(idx) = [];
-                    IntegrationResults(file).peakArea(idx) = [];
-                    IntegrationResults(file).peakHeight(idx) = [];
-                    IntegrationResults(file).peakRetentionTime(idx) = [];
-                    IntegrationResults(file).peakLocation(idx) = [];
-                    IntegrationResults(file).peakStartLocation(idx) = [];
-                    IntegrationResults(file).peakEndLocation(idx) = [];
-                    IntegrationResults(file).signal2Noise(idx) = [];
-                    IntegrationResults(file).entropy(idx) = [];
-                    IntegrationResults(file).spectrumMS2(idx) = [];
-
-
+                    %remove stored peak from list
+                    peakData(1,:) = [];
                 end
-                %store matching features
-                featureStruct(n).mass_measured = currentFeature(1,1);
-                featureStruct(n).retentionTime = currentFeature(1,2);
-                featureStruct(n).peakHeights = heights;
-                featureStruct(n).peakAreas = areas;
-                featureStruct(n).peakLocations = peakLocation;
-                featureStruct(n).peakBorders = peakBorders;
-                featureStruct(n).retentionTimes = retentionTimes;
-                featureStruct(n).signal2Noise = signal2Noise;
-                featureStruct(n).entropy = entropy;
-                featureStruct(n).spectrumMS2 = spectrum;
-                featureStruct(n).XIC = xic;
 
-                %update remaining features
-                uniqueFeatures(1,:) = [];
+                %remove empty structs
+                id = isnan([currentFeatureStruct(:).retentionTime])';
+                currentFeatureStruct(id) = [];
+
+                %store currentFeatureStruct
+                storedFeatures{featMass,1} = currentFeatureStruct;
             end
 
+            %unzip features
+            storedFeatures = vertcat(storedFeatures{:});
+
             % remove features with less peaks than required minimum
-            numElements = zeros(length(featureStruct),1);
-            for ix = 1:length(featureStruct)
-                numElements(ix) = nnz(~isnan(featureStruct(ix).peakHeights));
+            numElements = zeros(length(storedFeatures),1);
+            for ix = 1:length(storedFeatures)
+                numElements(ix) = nnz(~isnan(storedFeatures(ix).peakHeights));
             end
             idx = numElements < minDataPoints;
 
             %sum number of removed peaks
             output.occurenceFiltered = sum(numElements(idx),"all");
-            featureStruct(idx) = [];
-
+            storedFeatures(idx) = [];
+            %remove asymmetry field
+            storedFeatures = rmfield(storedFeatures,"asymmetry");
             if isISIntegration == false
                 %build featureID
-                for ix = 1:length(featureStruct)
-                    featureStruct(ix).featID = featureStruct(ix).mass_measured + "Da@" + featureStruct(ix).retentionTime + "s_";
+                for ix = 1:length(storedFeatures)
+                    storedFeatures(ix).featID = storedFeatures(ix).mass_measured + "Da@" + storedFeatures(ix).retentionTime + "s_" + obj.GroupName;
                 end
 
                 %gather original scans
-                featureStruct = obj.FindOriginalScans(featureStruct);
+                storedFeatures = obj.FindOriginalScans(storedFeatures);
             end
 
-            output.feature = featureStruct;
+            output.feature = storedFeatures;
             output.dataSize = length(output.feature);
         end
 
+        function outputStruct = GatherMS2Spectra(obj,outputStruct)
+            %check if MSn data is already loaded
+            if isscalar(obj.RawDataFileObj.PeakDataMSn)
+                obj = obj.ReadData(obj.Files,2);
+            end
+            
+            rttol = obj.RTTol;
+            mztol = obj.mzTol;
+            mztolUnit = obj.mzTolUnit;
+
+            times = obj.RawDataFileObj.TimeDataMSn;
+            times = vertcat(times{:});
+            scans = obj.RawDataFileObj.PeakDataMSn;
+            scans = vertcat(scans{:});
+            precursor = obj.RawDataFileObj.Precursor;
+            precursor = vertcat(precursor{:});
+                
+            features = outputStruct.feature;
+
+            parfor n = 1:outputStruct.dataSize
+                idM = [];
+                switch mztolUnit
+                    case "Da"
+                        idM = abs(precursor-features(n).mass_measured) <= mztol;
+                    case "ppm"
+                        idM = abs(precursor-features(n).mass_measured)./features(n).mass_measured*10^6 <= mzTol;
+                end
+                idT = abs(times-features(n).retentionTime) <= rttol;
+                id = idT & idM;
+                foundScans = scans(id);
+                %remove possible empty scans
+                    foundScans(cellfun(@isempty, foundScans)) = [];
+                    if numel(foundScans) > 1 %average scan if multiple are present
+                        fakeTimes = 1:numel(foundScans);
+                        [mzroi,MSroi,~] = ROIpeaks3(foundScans,0,mztol,errorUnit,1,fakeTimes);
+                        %rescale
+                        MSroi = MSroi./max(MSroi,[],"all");
+                        foundScans = [mzroi;MSroi]';
+                    end
+                    features(n).spectrumMS2 = foundScans;
+            end
+            outputStruct.feature = features;
+        end
     end
 end
