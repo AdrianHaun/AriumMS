@@ -24,42 +24,7 @@ classdef GCData < RawData
             obj.mzTol = 0.05;
             obj.mzTolUnit = "Da";
         end
-
-
-        function obj = ReadData(obj,DataLoc,~)
-            nFiles = size(DataLoc,1);
-            %preallocation
-            Peaks=cell(nFiles,1);
-            times=cell(nFiles,1);
-            fileType = obj.MSFileType;
-
-            parfor n=1:nFiles
-                peakTemp = [];
-                timeTemp = [];
-                %filetype check
-                FileType=strsplit(DataLoc(n),'.');
-                FileType=FileType(end);
-                switch FileType
-                    case "mzML"
-                        [peakTemp,timeTemp] = readmzML(DataLoc{n},MSLevel=1);
-                    case "mzXML"
-                        [peakTemp,timeTemp] = readmzXML(DataLoc{n},MSLevel=1);
-                    case "CDF"
-                        [peakTemp,timeTemp] = mzcdf2peaks(mzcdfread(DataLoc{n},'Verbose',false));
-                end
-
-                % when profile data then centroid scans
-                if fileType == "profile"
-                    peakTemp = CentroidScans(peakTemp);
-                else
-                    [peakTemp,timeTemp] = DataCleanUp(peakTemp,timeTemp);
-                end
-                Peaks{n,1} = peakTemp;
-                times{n,1} = timeTemp;
-            end
-            obj.RawDataFileObj.TimeDataMS1 = times;
-            obj.RawDataFileObj.PeakDataMS1 = Peaks;
-        end
+        
 
         %% Data Processing
         function [Output,obj] = BatchProcess(obj,varargin)
@@ -92,7 +57,7 @@ classdef GCData < RawData
             %check if files already loaded then skip loading stage
             test = obj.RawDataFileObj.PeakDataMS1(1,1);
             if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= size(obj.RawDataFileObj.PeakDataMS1,1)
-                obj = obj.ReadData(FileLocs,1);
+                obj = obj.ReadData(FileLocs,obj.SeparationType);
             end
             clearvars test FileLocs id
 

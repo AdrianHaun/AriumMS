@@ -7,6 +7,7 @@ arguments
             polarities  (:,1) string
 end
 
+
 test = height(Scans) ~= height(polarities);
 switch test
     case true

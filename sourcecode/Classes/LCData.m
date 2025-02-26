@@ -16,70 +16,10 @@ classdef LCData < RawData
             obj.GroupName = "Group " + groupNumber;
         end
 
-        function obj = ReadData(obj,DataLoc,Level)
-            nFiles = size(DataLoc,1);
-            %preallocation
-            Peaks=cell(nFiles,1);
-            times=cell(nFiles,1);
-            PrecursorMass=cell(nFiles,1);
-            CollisionForce=cell(nFiles,1);
-            FragMethod=cell(nFiles,1);
-            fileType = obj.MSFileType;
-            %check if DataCheck was performed
-            if ~isfield(obj.RawDataFileObj,"polarity")
-                obj = obj.DataCheck;
-            end
-
-            polarities = obj.RawDataFileObj.polarity;
-            for n=1:nFiles
-                peakTemp = [];
-                timeTemp = [];
-                %filetype check
-                FileType=strsplit(DataLoc(n),'.');
-                FileType=FileType(end);
-                switch FileType
-                    case "mzML"
-                        [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc{n},MSLevel=Level);
-                    case "mzXML"
-                        [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
-                    case "CDF"
-                        [peakTemp,timeTemp] = mzcdf2peaks(mzcdfread(DataLoc{n},'Verbose',false));
-                end
-                %remove possible empty scans
-                emptyScans = cellfun(@isempty, peakTemp);
-                peakTemp(emptyScans) = [];
-                timeTemp(emptyScans) = [];
-                polarities{n}(emptyScans) = [];
-                % when profile data then centroid scans
-                if fileType == "profile"
-                    peakTemp = CentroidScans(peakTemp);
-                else
-                    [peakTemp,timeTemp] = DataCleanUp(peakTemp,timeTemp);
-                end
-                %convert from pseudo molecular mass to molecular mass
-                if Level == 1
-                    peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n});
-                end
-                Peaks{n,1} = peakTemp;
-                times{n,1} = timeTemp;
-            end
-            if Level == 1
-                obj.RawDataFileObj.TimeDataMS1 = times;
-                obj.RawDataFileObj.PeakDataMS1 = Peaks;
-            else
-                %remove cells with no MSn data
-                idx = cellfun(@isempty,Peaks);
-                Peaks(idx,:) = [];
-                times(idx,:) = [];
-                PrecursorMass(idx,:) = [];
-                CollisionForce(idx,:) = [];
-                FragMethod(idx,:) = [];
-                [obj.RawDataFileObj.PeakDataMSn,obj.RawDataFileObj.TimeDataMSn,obj.RawDataFileObj.Precursor,obj.RawDataFileObj.CollisionEnergy,obj.RawDataFileObj.CollisionType] = obj.MS2CleanUp(Peaks,times,PrecursorMass,CollisionForce,FragMethod);
-            end
-        end
+        
 
         %% Data Processing
-        function [Output,obj]=BatchProcess(obj,varargin)
+        function [Output,obj] = BatchProcess(obj,varargin)
             %check if old results exist and delete them
             if isfile(obj.ROIDataFile)
                 delete(obj.ROIDataFile)
@@ -107,9 +47,9 @@ classdef LCData < RawData
             nData = nData-sum(id);
 
             %check if files already loaded then skip loading stage
-            test = obj.RawDataFileObj.PeakDataMS1(1,1);
-            if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= size(obj.RawDataFileObj.PeakDataMS1,1)
-                obj = obj.ReadData(FileLocs,1);
+            test = obj.RawDataFileObj.DataMS1;
+            if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= height(test)
+                obj = obj.ReadData(FileLocs,obj.SeparationType);
             end
             clearvars test FileLocs id
 
@@ -648,7 +588,7 @@ classdef LCData < RawData
 
         function outputStruct = GatherMS2Spectra(obj,outputStruct)
             %check if MSn data is already loaded
-            if isscalar(obj.RawDataFileObj.PeakDataMSn)
+            if isscalar(obj.RawDataFileObj.DataMS2.peakDataMS2)
                 obj = obj.ReadData(obj.Files,2);
             end
             
@@ -656,11 +596,11 @@ classdef LCData < RawData
             mztol = obj.mzTol;
             mztolUnit = obj.mzTolUnit;
 
-            times = obj.RawDataFileObj.TimeDataMSn;
+            times = obj.RawDataFileObj.DataMS2.timeDataMS2;
             times = vertcat(times{:});
-            scans = obj.RawDataFileObj.PeakDataMSn;
+            scans = obj.RawDataFileObj.DataMS2.peakDataMS2;
             scans = vertcat(scans{:});
-            precursor = obj.RawDataFileObj.Precursor;
+            precursor = obj.RawDataFileObj.DataMS2.precursorMass;
             precursor = vertcat(precursor{:});
                 
             features = outputStruct.feature;

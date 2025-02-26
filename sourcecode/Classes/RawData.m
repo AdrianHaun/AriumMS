@@ -43,6 +43,7 @@ classdef RawData
         ISApply             (1,1) string {mustBeMember(ISApply,["S&B","SOnly"])} = "SOnly"
         ISOrder             (1,1) string {mustBeMember(ISOrder,["BlankIS","ISBlank"])} = "ISBlank"
         %Adduct Parameters
+        scanPolarities      (1,1) string {mustBeMember(scanPolarities,["positive","negative","both"])} = "positive"
         CosSim              (1,1) double {mustBeInRange(CosSim,0,1)} = 0.85
         AddSelectedPos      (30,1) logical = false        %Structure: 1:12 Single Charged, 13:18 Dimers, 19:26 DoubleCharged, 27:30 TripleCharged
         AddSelectedNeg      (16,1) logical = false       %Structure: 1:10 SingleCharged, 11:14 Dimers, 15 DoubleCharged, 16 TripleCharged
@@ -119,14 +120,19 @@ classdef RawData
             obj.RawDataFileObj.PreviewBPCs = {[]};
             obj.RawDataFileObj.PreviewTimes = {[]};
 
-            obj.RawDataFileObj.PeakDataMS1 = {[]};
-            obj.RawDataFileObj.TimeDataMS1 = {[]};
+            obj.RawDataFileObj.profileDataMS1 = {[]};
+            obj.RawDataFileObj.centroidedDataMS1 = {[]};
+            obj.RawDataFileObj.timeDataMS1 = {[]};
+            obj.RawDataFileObj.polarityMS1 = {[]};
 
-            obj.RawDataFileObj.PeakDataMSn = {[]};
-            obj.RawDataFileObj.TimeDataMSn = {[]};
-            obj.RawDataFileObj.Precursor = {[]};
-            obj.RawDataFileObj.CollisionEnergy = {[]};
-            obj.RawDataFileObj.CollisionType = {[]};
+            obj.RawDataFileObj.profileDataMS2 = {[]};
+            obj.RawDataFileObj.centroidedDataMS2 = {[]};
+            obj.RawDataFileObj.timeDataMS2 = {[]};
+            obj.RawDataFileObj.polarityMS2 = {[]};
+            obj.RawDataFileObj.precursorMass = {[]};
+            obj.RawDataFileObj.molecularPrecursorMass = {[]};
+            obj.RawDataFileObj.fragmentationEnergy = {[]};
+            obj.RawDataFileObj.fragmentationType = {[]};
 
             obj.ROIDataFile = tempname +".mat";
         end
@@ -162,8 +168,21 @@ classdef RawData
             obj.RawDataFileObj.PreviewTICs = TIC;
             obj.RawDataFileObj.PreviewBPCs = BPC;
             obj.RawDataFileObj.PreviewTimes = RetentionTimes;
-            obj.RawDataFileObj.polarity = polarityCells;
-            obj.RawDataFileObj.PeakDataMS1 ={[]};
+
+            polarity = vertcat(polarityCells{:});
+
+            test = strcmp(polarity,"+");
+            if all(test)
+                polarity = "positive";
+            elseif all(~test)
+                polarity = "negative";
+            else
+                polarity = "both";
+            end
+            obj.scanPolarities = polarity;
+
+            obj.RawDataFileObj.DataMS1 ={[]};
+            obj.RawDataFileObj.DataMS2 ={[]};
 
             % calculate Scan Frequency [Hz]
             scanFrq = [FileInfo.NumberOfScansMS1]./([FileInfo.EndTime]-[FileInfo.StartTime]);
@@ -178,58 +197,70 @@ classdef RawData
             obj.End=round(max([FileInfo.EndTime]),1);
         end
 
-        function obj = ReadData(obj,DataLoc,Level)
+        function obj = ReadData(obj,DataLoc,separationType)
             nFiles = size(DataLoc,1);
             %preallocation
-            Peaks=cell(nFiles,1);
-            times=cell(nFiles,1);
-            PrecursorMass=cell(nFiles,1);
-            CollisionForce=cell(nFiles,1);
-            FragMethod=cell(nFiles,1);
-            fileType = obj.MSFileType;
-            %check if DataCheck was performed
-            if ~isfield(obj.RawDataFileObj,"polarity")
-                obj = obj.DataCheck;
-            end
-
-            polarities = obj.RawDataFileObj.polarity;
-            parfor n=1:nFiles
-                peakTemp = [];
-                timeTemp = [];
+            ms1 = cell(nFiles,1);
+            ms2 = cell(nFiles,1);
+            parfor n = 1:nFiles
                 %filetype check
-                FileType=strsplit(DataLoc(n),'.');
-                FileType=FileType(end);
+                FileType = strsplit(DataLoc(n),'.');
+                FileType = FileType(end);
                 switch FileType
                     case "mzML"
-                        [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc{n},MSLevel=Level);
+                        [ms1{n,1},ms2{n,1}] = readmzML_MSandMS2(DataLoc{n});
                     case "mzXML"
-                        [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
+                        [ms1{n,1},ms2{n,1}] = readmzXML_MSandMS2(DataLoc{n});
+                    case "CDF"
+                        ms1{n,1} =  readmzCDF(DataLoc{n});
                 end
+            end
 
-                % when profile data then centroid scans
-                if fileType == "profile"
-                    peakTemp = CentroidScans(peakTemp);
-                else
-                    [peakTemp,timeTemp] = DataCleanUp(peakTemp,timeTemp);
+            for n = 1:nFiles
+                %remove possible empty scans
+                emptyScans = cellfun(@isempty, ms1{n,1}.profileDataMS1);
+                ms1{n,1}.profileDataMS1(emptyScans,:) = [];
+                ms1{n,1}.timeDataMS1(emptyScans,:) = [];
+                ms1{n,1}.polarityMS1(emptyScans,:) = [];
+
+                emptyScans = cellfun(@isempty, ms2{n,1}.profileDataMS2);
+                ms2{n,1}.profileDataMS2(emptyScans,:) = [];
+                ms2{n,1}.timeDataMS2(emptyScans,:) = [];
+                ms2{n,1}.polarityMS2(emptyScans,:) = [];
+                ms2{n,1}.precursorMass(emptyScans,:) = [];
+                ms2{n,1}.fragmentationEnergy(emptyScans,:) = [];
+                ms2{n,1}.fragmentationType(emptyScans,:) = [];
+
+
+                switch separationType
+                    case "GC"
+                        %centroid profile data
+                        ms1{n,1}.centroidDataMS1 = CentroidScans(ms1{n,1}.profileDataMS1);
+
+                    otherwise
+                        %convert MS1 and MS2 precursor to molecular mass
+                        ms1{n,1}.profileDataMS1 = ConvertScans2MolecularMass(ms1{n,1}.profileDataMS1,ms1{n,1}.polarityMS1);
+
+                        precursors = ms2{n,1}.precursorMass;
+                        modifier = ones(size(precursors))*1.007825;
+                        idx = ms2{n,1}.polarityMS2 == "+";
+                        modifier(idx) = modifier(idx)*-1;
+                        ms2{n,1}.precursorMassCorrected = precursors + modifier;
+
+                        %centroid profile data
+                        ms1{n,1}.centroidDataMS1 = CentroidScans(ms1{n,1}.profileDataMS1);
+
+                        %compress profile MS1 data
+                        ms1{n,1} = DataCleanUp(ms1{n,1});
+
+                        %compress MS2 data and store
+                        ms2{n,1}.centroidDataMS2 = CentroidScans(ms2{n,1}.profileDataMS2);
                 end
-                %convert from pseudo molecular mass to molecular mass
-                peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n});
-                Peaks{n,1} = peakTemp;
-                times{n,1} = timeTemp;
             end
-            if Level == 1
-                obj.RawDataFileObj.TimeDataMS1 = times;
-                obj.RawDataFileObj.PeakDataMS1 = Peaks;
-            else
-                %remove cells with no MSn data
-                idx = cellfun(@isempty,Peaks);
-                Peaks(idx,:) = [];
-                times(idx,:) = [];
-                PrecursorMass(idx,:) = [];
-                CollisionForce(idx,:) = [];
-                FragMethod(idx,:) = [];
-                [obj.RawDataFileObj.PeakDataMSn,obj.RawDataFileObj.TimeDataMSn,obj.RawDataFileObj.Precursor,obj.RawDataFileObj.CollisionEnergy,obj.RawDataFileObj.CollisionType] = obj.MS2CleanUp(Peaks,times,PrecursorMass,CollisionForce,FragMethod);
-            end
+            %store data
+            obj.RawDataFileObj.DataMS1 = ms1;
+            obj.RawDataFileObj.DataMS2 = ms2;
+
         end
 
         %% Data Processing
@@ -773,9 +804,13 @@ classdef RawData
         function obj = CutScansToSize(obj)
             StartTime = obj.Start;
             EndTime = obj.End;
-            tempPeakData = obj.RawDataFileObj.PeakDataMS1;
-            tempTimeData = obj.RawDataFileObj.TimeDataMS1;
-
+            data = obj.RawDataFileObj.DataMS1;
+            tempPeakData = cell(size(data));
+            tempTimeData = tempPeakData;
+            parfor n = 1:height(data)
+                tempPeakData{n,1} = data{n,1}.centroidDataMS1;
+                tempTimeData{n,1} = data{n,1}.timeDataMS1;
+            end
             parfor n = 1:size(tempPeakData,1)
                 idx = tempTimeData{n,1} < StartTime | tempTimeData{n,1} > EndTime;
                 tempPeakData{n,1}(idx)=[];
@@ -996,15 +1031,15 @@ classdef RawData
         end
 
 
-        
+
 
         function IntResults = FilterPeaks(obj,IntResults,Noise)
             % Filters identified peaks from AutoCWT
             MinPWDataPoints=floor(obj.minWidth/obj.ScanFrequency);
             MaxPWDataPoints=ceil(obj.maxWidth/obj.ScanFrequency);
             maxSN = obj.minSignalNoise;
-            
-            
+
+
             parfor n = 1:length(IntResults)
                 %check empty input
                 if isempty(IntResults(n).peakLocation)
@@ -1059,42 +1094,42 @@ classdef RawData
                 IntResults(n).signal2Noise(idx) = [];
             end
 
-                %calculate peak entropy and filter after first filter round
-                % possible wrong peak bounderies causes errors
-                IntResults = obj.CalculatePeakEntropy(IntResults);
+            %calculate peak entropy and filter after first filter round
+            % possible wrong peak bounderies causes errors
+            IntResults = obj.CalculatePeakEntropy(IntResults);
 
-                %determine entropy bins
-                if obj.entropyFilter == true
-                    allEntropy = vertcat(IntResults(:).entropy);
-                    [~,binedges] = histcounts(allEntropy,'BinMethod','auto');
-                    switch obj.entropyStrength
-                        case "lax"
-                            medianEntropy = binedges(10);
-                        case "medium"
-                            medianEntropy = binedges(6);
-                        case "strict"
-                            medianEntropy = binedges(2);
-                    end
-
-                else
-                    medianEntropy = 1;
+            %determine entropy bins
+            if obj.entropyFilter == true
+                allEntropy = vertcat(IntResults(:).entropy);
+                [~,binedges] = histcounts(allEntropy,'BinMethod','auto');
+                switch obj.entropyStrength
+                    case "lax"
+                        medianEntropy = binedges(10);
+                    case "medium"
+                        medianEntropy = binedges(6);
+                    case "strict"
+                        medianEntropy = binedges(2);
                 end
 
-                parfor n = 1:length(IntResults)
-                    %check empty input
-                    if isempty(IntResults(n).peakLocation)
-                        continue
-                    end
-                    %entropy peak rejection
-                    id = IntResults(n).entropy > medianEntropy;
-                    IntResults(n).entropyFiltered = sum(id);
+            else
+                medianEntropy = 1;
+            end
 
-                    IntResults(n).peakLocation(id) = [];
-                    IntResults(n).peakStartLocation(id) = [];
-                    IntResults(n).peakEndLocation(id) = [];
-                    IntResults(n).peakHeight(id) = [];
-                    IntResults(n).signal2Noise(id) = [];
+            parfor n = 1:length(IntResults)
+                %check empty input
+                if isempty(IntResults(n).peakLocation)
+                    continue
                 end
+                %entropy peak rejection
+                id = IntResults(n).entropy > medianEntropy;
+                IntResults(n).entropyFiltered = sum(id);
+
+                IntResults(n).peakLocation(id) = [];
+                IntResults(n).peakStartLocation(id) = [];
+                IntResults(n).peakEndLocation(id) = [];
+                IntResults(n).peakHeight(id) = [];
+                IntResults(n).signal2Noise(id) = [];
+            end
 
             %remove features without peaks
             id = false(length(IntResults),1);
@@ -1111,7 +1146,7 @@ classdef RawData
             error = obj.mzerror;
             errorUnit = obj.mzErrorUnit;
 
-            allScans = obj.RawDataFileObj.PeakDataMS1;
+            allScans = obj.RawDataFileObj.profileDataMS1;
             % append all scans with spacers in between, to match processing
             % indices
             for n = 1:numel(allScans)
@@ -1152,7 +1187,7 @@ classdef RawData
             end
         end
 
-        
+
     end
 
     methods (Static)
@@ -1187,13 +1222,13 @@ classdef RawData
 
         function OutArray = FileSortPeaks(InArray)
             %% sort struct contents to original file
-            
+
             %check if GC or LC/CE
             isGC = isscalar(InArray);
-            
+
             %preallocate output Feature struct
             OutArray = InArray;
-            
+
             nFiles = max(vertcat(InArray(:).fileID));
             %sort
             parfor n = 1:length(InArray)

@@ -1,16 +1,19 @@
-function [Peak,Time] = DataCleanUp(Peak,Time)
-%Remove m/z with Intensity < 100 counts
-%   Removes all m/z values with intensity below thresh.
+function msStruct = DataCleanUp(msStruct)
+%Determines the most common Intensity values and removes them
+
+%% determine over all intensity bins
+allScans = msStruct.profileDataMS1;
+ints = vertcat(allScans{:});
+[~,edges] = histcounts(ints(:,2));
+cutoff = edges(2); 
 
 %% Clean Data
-parfor j = 1:height(Peak)
-    data = Peak{j,1};
-    [~,edges] = histcounts(data(:,2));
-    idx = data(:,2) <= edges(2)/2;
-    data(idx,:)=[];
-    Peak{j,1}=data;
+parfor j = 1:height(allScans)
+    data = allScans{j,1};
+    idx = data(:,2) <= cutoff;
+    data(idx,:) = [];
+    allScans{j,1} = data;
 end
-idx=cellfun(@isempty, Peak);
-Peak(idx) = [];
-Time(idx) = [];
+msStruct.profileDataMS1 = allScans;
+
 end
