@@ -95,23 +95,18 @@ classdef RawData
         ISMassFound         (1,:) double
         ISdelta             (:,:) double
         mzCorrectionFcn     (1,1)
-        % Number of removed Features
-        SNFiltered          (1,1) double
-        EntropyFiltered     (1,1) double
-        MaxWidthFiltered    (1,1) double
-        MinWidthFiltered    (1,1) double
-        IsotopeFiltered     (1,1) double
-        AdductFiltered      (1,1) double
-        OccurenceFiltered   (1,1) double
-        MedianEntropy       (1,1) double
 
         %testing variables
         Output
+        mainWindow          matlab.ui.Figure
     end
 
     methods
-        function obj = RawData
+        function obj = RawData(appWindow)
             %Construct an instance of this class
+            if isgraphics(appWindow)
+                obj.mainWindow = appWindow;
+            end
             obj.RawDataFile = tempname +".mat";
             obj.RawDataFileObj = matfile(obj.RawDataFile,Writable=true);
 
@@ -181,8 +176,18 @@ classdef RawData
             end
             obj.scanPolarities = polarity;
 
-            obj.RawDataFileObj.DataMS1 ={[]};
-            obj.RawDataFileObj.DataMS2 ={[]};
+            obj.RawDataFileObj.profileDataMS1 = {[]};
+            obj.RawDataFileObj.centroidedDataMS1 = {[]};
+            obj.RawDataFileObj.timeDataMS1 = {[]};
+            obj.RawDataFileObj.polarityMS1 = {[]};
+            obj.RawDataFileObj.profileDataMS2 = {[]};
+            obj.RawDataFileObj.centroidedDataMS2 = {[]};
+            obj.RawDataFileObj.timeDataMS2 = {[]};
+            obj.RawDataFileObj.polarityMS2 = {[]};
+            obj.RawDataFileObj.precursorMass = {[]};
+            obj.RawDataFileObj.molecularPrecursorMass = {[]};
+            obj.RawDataFileObj.fragmentationEnergy = {[]};
+            obj.RawDataFileObj.fragmentationType = {[]};
 
             % calculate Scan Frequency [Hz]
             scanFrq = [FileInfo.NumberOfScansMS1]./([FileInfo.EndTime]-[FileInfo.StartTime]);
@@ -212,32 +217,32 @@ classdef RawData
                     case "mzXML"
                         [ms1{n,1},ms2{n,1}] = readmzXML_MSandMS2(DataLoc{n});
                     case "CDF"
-                        ms1{n,1} =  readmzCDF(DataLoc{n});
+                        [ms1{n,1},ms2{n,1}] =  readmzCDF(DataLoc{n});
                 end
             end
 
             for n = 1:nFiles
-                %remove possible empty scans
+                %remove possible empty scans in ms1
                 emptyScans = cellfun(@isempty, ms1{n,1}.profileDataMS1);
                 ms1{n,1}.profileDataMS1(emptyScans,:) = [];
                 ms1{n,1}.timeDataMS1(emptyScans,:) = [];
                 ms1{n,1}.polarityMS1(emptyScans,:) = [];
 
-                emptyScans = cellfun(@isempty, ms2{n,1}.profileDataMS2);
-                ms2{n,1}.profileDataMS2(emptyScans,:) = [];
-                ms2{n,1}.timeDataMS2(emptyScans,:) = [];
-                ms2{n,1}.polarityMS2(emptyScans,:) = [];
-                ms2{n,1}.precursorMass(emptyScans,:) = [];
-                ms2{n,1}.fragmentationEnergy(emptyScans,:) = [];
-                ms2{n,1}.fragmentationType(emptyScans,:) = [];
-
-
                 switch separationType
                     case "GC"
                         %centroid profile data
                         ms1{n,1}.centroidDataMS1 = CentroidScans(ms1{n,1}.profileDataMS1);
-
+                        
                     otherwise
+                        %remove possible empty scans in ms2
+                        emptyScans = cellfun(@isempty, ms2{n,1}.profileDataMS2);
+                        ms2{n,1}.profileDataMS2(emptyScans,:) = [];
+                        ms2{n,1}.timeDataMS2(emptyScans,:) = [];
+                        ms2{n,1}.polarityMS2(emptyScans,:) = [];
+                        ms2{n,1}.precursorMass(emptyScans,:) = [];
+                        ms2{n,1}.fragmentationEnergy(emptyScans,:) = [];
+                        ms2{n,1}.fragmentationType(emptyScans,:) = [];
+
                         %convert MS1 and MS2 precursor to molecular mass
                         ms1{n,1}.profileDataMS1 = ConvertScans2MolecularMass(ms1{n,1}.profileDataMS1,ms1{n,1}.polarityMS1);
 
@@ -251,16 +256,33 @@ classdef RawData
                         ms1{n,1}.centroidDataMS1 = CentroidScans(ms1{n,1}.profileDataMS1);
 
                         %compress profile MS1 data
-                        ms1{n,1} = DataCleanUp(ms1{n,1});
+                        ms1{n,1} = DataCleanUpMS1(ms1{n,1});
 
                         %compress MS2 data and store
                         ms2{n,1}.centroidDataMS2 = CentroidScans(ms2{n,1}.profileDataMS2);
+                        ms2{n,1} = DataCleanUpMS2(ms2{n,1},0.05);
                 end
             end
             %store data
-            obj.RawDataFileObj.DataMS1 = ms1;
-            obj.RawDataFileObj.DataMS2 = ms2;
+            %MS1 data
+            ms1 = vertcat(ms1{:});
+            obj.RawDataFileObj.profileDataMS1 = {ms1.profileDataMS1}';
+            obj.RawDataFileObj.centroidedDataMS1 = {ms1.centroidDataMS1}';
+            obj.RawDataFileObj.timeDataMS1 = {ms1.timeDataMS1}';
+            obj.RawDataFileObj.polarityMS1 = {ms1.polarityMS1}';
 
+            %check for empty MS2 data
+            ms2 = vertcat(ms2{:});
+            if ~isempty([ms2.profileDataMS2])
+                obj.RawDataFileObj.profileDataMS2 = {ms2.profileDataMS2}';
+                obj.RawDataFileObj.centroidedDataMS2 = {ms2.centroidDataMS2}';
+                obj.RawDataFileObj.timeDataMS2 = {ms2.timeDataMS2}';
+                obj.RawDataFileObj.polarityMS2 = {ms2.polarityMS2}';
+                obj.RawDataFileObj.precursorMass = {ms2.precursorMass}';
+                obj.RawDataFileObj.molecularPrecursorMass = {ms2.precursorMassCorrected}';
+                obj.RawDataFileObj.fragmentationEnergy = {ms2.fragmentationEnergy}';
+                obj.RawDataFileObj.fragmentationType = {ms2.fragmentationType}';
+            end
         end
 
         %% Data Processing
@@ -537,17 +559,7 @@ classdef RawData
 
         function obj = removeContaminants(obj)
             % Remove Contaminant Masses load correct Contaminant Masslist
-            polarity = obj.RawDataFileObj.polarity;
-            polarity = vertcat(polarity{:});
-
-            test = strcmp(polarity,"+");
-            if all(test)
-                polarity = "positive";
-            elseif all(~test)
-                polarity = "negative";
-            else
-                polarity = "both";
-            end
+            polarity = obj.scanPolarities;
 
             switch polarity
                 case "positive"
@@ -804,13 +816,9 @@ classdef RawData
         function obj = CutScansToSize(obj)
             StartTime = obj.Start;
             EndTime = obj.End;
-            data = obj.RawDataFileObj.DataMS1;
-            tempPeakData = cell(size(data));
-            tempTimeData = tempPeakData;
-            parfor n = 1:height(data)
-                tempPeakData{n,1} = data{n,1}.centroidDataMS1;
-                tempTimeData{n,1} = data{n,1}.timeDataMS1;
-            end
+            tempPeakData = obj.RawDataFileObj.centroidedDataMS1;
+            tempTimeData = obj.RawDataFileObj.timeDataMS1;
+
             parfor n = 1:size(tempPeakData,1)
                 idx = tempTimeData{n,1} < StartTime | tempTimeData{n,1} > EndTime;
                 tempPeakData{n,1}(idx)=[];
@@ -1281,24 +1289,6 @@ classdef RawData
             end
         end
 
-
-        function [PeakData,TimeData,PrecursorData,ColType,ColEnergy]= MS2CleanUp(PeakData,TimeData,PrecursorData,ColType,ColEnergy)
-            %remove empty scans and rescale intensities
-            %% Clean Data
-            for k = 1 : size(PeakData,1)
-                Peak = PeakData{k,1};
-                idx = cellfun(@isempty,Peak);
-                Peak(idx,:) = [];
-                TimeData{k,1}(idx,:) = [];
-                PrecursorData{k,1}(idx,:) = [];
-                ColType{k,1}(idx,:) = [];
-                ColEnergy{k,1}(idx,:) = [];
-                parfor n = 1:numel(Peak)
-                    Peak{n,1}(:,2) = Peak{n,1}(:,2)/max(Peak{n,1}(:,2));
-                end
-                PeakData{k,1}=Peak;
-            end
-        end
 
         function integrationStruct = FinalizeIntegrationOutput(integrationStruct,times)
             % Performs Integration of found Peaks and gathers retention times

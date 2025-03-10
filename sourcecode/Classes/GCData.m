@@ -4,16 +4,16 @@ classdef GCData < RawData
     properties
         GroupName (1,1) string
         SeparationType (1,1) string = "GC"
-        EISpectra (:,1) cell
     end
 
     methods
-        function obj = GCData(groupNumber)
+        function obj = GCData(groupNumber,window)
             %Construct an instance of this class
             if nargin == 0
                 groupNumber = 0;
+                window = 0;
             end
-            obj = obj@RawData;
+            obj = obj@RawData(window);
             obj.GroupName = "Group " + groupNumber;
             % set default parameters
             obj.mzerror = 0.1;
@@ -28,6 +28,7 @@ classdef GCData < RawData
 
         %% Data Processing
         function [Output,obj] = BatchProcess(obj,varargin)
+           
             %check if old results exist and delete them
             if isfile(obj.ROIDataFile)
                 delete(obj.ROIDataFile)
@@ -39,6 +40,9 @@ classdef GCData < RawData
                 obj = obj.SetOptimizationOptions(mode,bayesOptions);
             elseif isscalar(varargin)
                 error("Wrong number of inputs")
+            else
+                title = "Processing " + obj.GroupName;
+                progressBar = uiprogressdlg(obj.mainWindow,"Title",title,"Message","Preparation",Value=0);
             end
 
             nFiles = size(obj.Files,1);
@@ -55,10 +59,12 @@ classdef GCData < RawData
             nData = nData-sum(id);
 
             %check if files already loaded then skip loading stage
-            test = obj.RawDataFileObj.PeakDataMS1(1,1);
-            if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= size(obj.RawDataFileObj.PeakDataMS1,1)
+            test = obj.RawDataFileObj.centroidedDataMS1(1,1);
+            if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= size(obj.RawDataFileObj.centroidedDataMS1,1)
+                progressBar.Message = "Loading files";
                 obj = obj.ReadData(FileLocs,obj.SeparationType);
             end
+            progressBar.Value = 0.33;
             clearvars test FileLocs id
 
             %build TempDataFile
@@ -77,11 +83,15 @@ classdef GCData < RawData
 
             obj.nScans = cellfun(@numel,obj.TempDataFileObj.TimeCells);
             if obj.MSalign == true
+                progressBar.Message = "Aligning MS Scans";
                 obj = obj.AlignScans("batch");
+                progressBar.Value = 0.4;
             end
 
             % ROI Search
+            progressBar.Message = "Searching for ROIs";
             obj = obj.AutoROI("batch");
+            progressBar.Value = 0.5;
 
             % Average BLK
             if obj.BLKSubtraction == true && nBLK > 1
@@ -91,16 +101,22 @@ classdef GCData < RawData
 
             % Baseline Correction
             if obj.BaseCorr == true
+                progressBar.Message = "Correcting Baseline";
                 obj = obj.CorrectBaseline("batch");
+                progressBar.Value = progressBar.Value + 0.05;
             end
             % Smoothing
             if obj.Smoothing == true
+                progressBar.Message = "Correcting Baseline";
                 obj = obj.SmoothPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Peak Align
             if obj.Peakalign == true && nData > 1
+                progressBar.Message = "Correcting Baseline";
                 obj = obj.AlignPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             if obj.BLKSubtraction == true % Separate Blank data from Sample data
@@ -112,6 +128,7 @@ classdef GCData < RawData
 
             % subtract blank before IS normalization
             if obj.BLKSubtraction == true && obj.ISOrder == "BlankIS"
+                progressBar.Message = "Subtracting Blank";
                 peakCells = obj.TempDataFileObj.ROICells;
                 BLKMat = obj.TempDataFileObj.ROIMatBLK;
                 parfor id=1:size(peakCells,1)
@@ -120,22 +137,26 @@ classdef GCData < RawData
                     peakCells{id,1} = max(peakCells{id,1},0);
                 end
                 obj.TempDataFileObj.ROICells = peakCells;
+                progressBar.Value = progressBar.Value + 0.05;
             end
             % pad arrays with Maximum peak width*3 Scans to eliminate
             % integration interference between matrices
             obj = obj.FinalizeROI;
 
-            clearvars -except obj
+            clearvars -except obj progressBar
             %% Integration Stage
             % Find and Integrate IS separate
             if obj.ISTDCorr == true
+                progressBar.Message = "Searching for Internal Standard";
                 obj = obj.IntegrateIS;
                 if ~isempty(obj.ISValue)
                     obj = obj.ISNormalize;
                 end
+                progressBar.Value = progressBar.Value + 0.05;
             end
             % BLK Subtraction after IS Correction
             if obj.BLKSubtraction == true && obj.ISOrder == "ISBlank"
+                progressBar.Message = "Subtracting Blank";
                 MSroi = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScansPadded);
                 MatBLK = obj.TempDataFileObj.ROIMatBLK;
                 parfor id=1:size(MSroi,1)
@@ -146,39 +167,48 @@ classdef GCData < RawData
                 id = all(MSroi >= obj.thresh,1);
                 obj.TempDataFileObj.ROIMat = MSroi(:,id);
                 obj.TempDataFileObj.ROImzVec(:,~id) = [];
+                progressBar.Value = progressBar.Value + 0.05;
             end
             % mass correction
             if obj.MassCal == true && ~isempty(obj.ISValue)
+                progressBar.Message = "Performing IS mass correction";
                 obj = obj.ISMassCorrection;
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Integrate all Peaks
+            progressBar.Message = "Integrating Peaks";
             IntegrationData = obj.GCIntegrate;
-            %Calculate number of removed features
-            obj.MinWidthFiltered = IntegrationData.minWidthFiltered;
-            obj.MaxWidthFiltered = IntegrationData.maxWidthFiltered;
-            obj.SNFiltered = IntegrationData.signal2NoiseFiltered;
+            progressBar.Value = 0.9;
             
+            progressBar.Message = "Processing found Features";
             IntegrationData = obj.GatherEISpectra(IntegrationData);
             IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
             IntegrationData = obj.FileSortPeaks(IntegrationData);
             IntegrationData = obj.mergeDuplicatePeaksWithinFile_GC(IntegrationData);
 
+            
+
+            % Build Storage Arrays
+            Output = obj.BuildStorageArrays_GC(IntegrationData);
             %%%% 
-            % 
             % confirm same feature by MS2 comparison
-
+            Output = obj.ConfirmSameGCFeature(Output);
             %%%%%
-
-            % Build Storage Arrays and filter by number of occurences
-            [Output,obj] = obj.BuildStorageArrays_GC(IntegrationData);
+            % Occurence filter
+            Output = obj.OccurenceFilterFeatures(Output);
             
             %build average EI (MS2) spectrum
             Output.feature = obj.FinalizeEISpectra(Output.feature);
-            
+            progressBar.Value = 0.95;
+
             %apply scaling
+            progressBar.Message = "Apply scaling";
             Output = obj.GroupAndSampleScaling(Output);
-    
+            
+            progressBar.Message = "Group processing successful";
+            progressBar.Value = 1;
+
             obj.Output = Output;
 
             %post processing cleanup
@@ -194,6 +224,7 @@ classdef GCData < RawData
             %delete Temprorary file
             delete(obj.TempDataFile)
             obj.TempDataFile = "";
+            close(progressBar)
         end
 
         %% helper functions
@@ -278,7 +309,7 @@ classdef GCData < RawData
                 hasMolecularMass = false;
                 counter = 0;
                 while hasMolecularMass == false & counter < numel(masses)
-                    counter = counter+1;
+                    counter = counter + 1;
                     possibleFragment = masses(counter)-EIlosses;
                     hasMolecularMass = any(min(abs(masses-possibleFragment'))<0.1);
                 end
@@ -405,7 +436,7 @@ classdef GCData < RawData
             end
         end
 
-function [output,obj] = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
+function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             nFiles = numel(obj.Files);
 
             %preallocate Output struct
@@ -427,6 +458,8 @@ function [output,obj] = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             output.entropyFiltered = IntegrationResults(1).entropyFiltered;
             output.signal2NoiseFiltered = IntegrationResults(1).signal2NoiseFiltered;
             output.fileNames = obj.FileNames;
+            output.groupName = obj.GroupName;
+            output.separationType = obj.SeparationType;
 
             XIC = IntegrationResults(1).XIC;
 
@@ -458,10 +491,8 @@ function [output,obj] = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             mztolUnit = obj.mzTolUnit;
 
             if isscalar(varargin)
-                minDataPoints = nFiles;
                 isISIntegration = true;
             else
-                minDataPoints = ceil(nFiles*obj.minOccurence);
                 isISIntegration = false;
             end
 
@@ -473,7 +504,7 @@ function [output,obj] = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             featureStruct = repmat(featureStruct,height(uniqueFeatures),1);
             n = 0;
             while ~isempty(uniqueFeatures)
-                n = n+1; disp(n)
+                n = n + 1;
                 currentFeature = uniqueFeatures(1,:);
                 % preallocate temp storages
                 emptyArray = NaN(1,nFiles);
@@ -548,17 +579,6 @@ function [output,obj] = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                 uniqueFeatures(1,:) = [];
             end
 
-            % remove features with less peaks than required minimum
-            numElements = zeros(length(featureStruct),1);
-            for ix = 1:length(featureStruct)
-                numElements(ix) = nnz(~isnan(featureStruct(ix).peakHeights));
-            end
-            idx = numElements < minDataPoints;
-
-            %sum number of removed peaks
-            output.occurenceFiltered = sum(numElements(idx),"all");
-            featureStruct(idx) = [];
-
             if isISIntegration == false
                 %build featureID
                 for ix = 1:length(featureStruct)
@@ -573,5 +593,94 @@ function [output,obj] = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             output.dataSize = length(output.feature);
         end
 
+        function output = OccurenceFilterFeatures(obj,output)
+            % remove features with less peaks than required minimum
+
+            nFiles = numel(obj.Files);
+            minDataPoints = ceil(nFiles*obj.minOccurence);
+            featureStruct = output.feature;
+            numElements = zeros(length(featureStruct),1);
+
+            for ix = 1:length(featureStruct)
+                numElements(ix) = nnz(~isnan(featureStruct(ix).peakHeights));
+            end
+            idx = numElements < minDataPoints;
+
+            %sum number of removed peaks
+            output.occurenceFiltered = sum(numElements(idx),"all");
+            featureStruct(idx) = [];
+
+            output.feature = featureStruct;
+        end
+
+        function Output = ConfirmSameGCFeature(obj,Output)
+            
+
+            featureStruct = Output.feature;
+            nFiles = numel(obj.Files);
+            %empty feature
+            emptyFeature = struct(...
+                "featID",strings,...
+                "mass_measured",[],...
+                "retentionTime",[],...
+                "adductType",strings,...
+                "mass_corrected",[],...
+                "formula",strings,...
+                "peakHeights",zeros(0,nFiles),...
+                "peakAreas",zeros(0,nFiles),...
+                "peakLocations",zeros(0,nFiles),...
+                "peakBorders",zeros(0,nFiles),...
+                "retentionTimes",zeros(0,nFiles),...
+                "signal2Noise",zeros(0,nFiles),...
+                "entropy",zeros(0,nFiles),...
+                "XIC",cell(1),...
+                "spectrumMS1",cell(1),...
+                "spectrumMS2",cell(1));
+
+            mzerror = 0.10;
+            errorUnit = "Da";
+
+            for n = 1:length(featureStruct)
+                
+                spectra = featureStruct(n).spectrumMS1;
+                if sum(~cellfun("isempty",spectra)) <= 1 %only one file with peak or no spectra
+                    continue
+                end
+
+                % clean scans
+                for j = 1:width(spectra)
+                    data = spectra{1,j};
+                    if isempty(data)
+                        continue
+                    end
+                    idx = data(:,2) < 0.05;
+                    data(idx,:) = [];
+                    spectra{1,j} = data;
+                end
+                %build index to original file
+                originalFileID = 1:numel(spectra);
+                originalFileID(cellfun(@isempty,spectra)) = [];
+                spectra(cellfun(@isempty,spectra)) = [];
+                %align scans
+                %synthetic timevector
+                times = 1:numel(spectra);
+                [mzroi,MSroi,~] = ROIpeaks3(spectra',0,mzerror,errorUnit,1,times);
+                alingedSpectra = [mzroi;MSroi]';
+                CompoundScores = InnerFeatScores(alingedSpectra);
+
+                if all(CompoundScores(:,1) >= 700)
+                    continue
+                else
+                    %split feature
+                    id = CompoundScores(:,1) < 700;
+                    
+                    
+
+
+                end
+
+            end
+
+        end
     end
 end

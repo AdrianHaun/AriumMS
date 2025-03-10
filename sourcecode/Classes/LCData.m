@@ -47,7 +47,7 @@ classdef LCData < RawData
             nData = nData-sum(id);
 
             %check if files already loaded then skip loading stage
-            test = obj.RawDataFileObj.DataMS1;
+            test = obj.RawDataFileObj.centroidedDataMS1;
             if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= height(test)
                 obj = obj.ReadData(FileLocs,obj.SeparationType);
             end
@@ -67,7 +67,7 @@ classdef LCData < RawData
             %remove scans outside RT range
             obj = obj.CutScansToSize;
 
-            % remove isotopes and adducts
+            % remove isotopes
             if obj.IsotopeFilter == true
                 obj = obj.FilterIsotopesScanStage;
             end
@@ -95,6 +95,7 @@ classdef LCData < RawData
             if obj.BaseCorr == true
                 obj = obj.CorrectBaseline("batch");
             end
+
             % Smoothing
             if obj.Smoothing == true
                 obj = obj.SmoothPeaks("batch");
@@ -177,8 +178,6 @@ classdef LCData < RawData
 
             %gather MS2 spectra
             Output = obj.GatherMS2Spectra(Output);
-
-            %confirm same feature by MS2 comparison
 
            
             obj.Output = Output;
@@ -509,41 +508,38 @@ classdef LCData < RawData
                     matchingRT = sum(id);
                     
                     if matchingRT == 0 %no matching RT -> new Feature
-                        % first empty struct
-                        firstEmpty = find(isnan(vertcat(currentFeatureStruct(:).retentionTime)));
-                        firstEmpty = firstEmpty(1);
-                        currentFeatureStruct(firstEmpty).peakLocations(currentFile) = peakData(1,1);
-                        currentFeatureStruct(firstEmpty).retentionTimes(currentFile) = peakData(1,2);
-                        currentFeatureStruct(firstEmpty).retentionTime = peakData(1,2);
-                        currentFeatureStruct(firstEmpty).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
-                        currentFeatureStruct(firstEmpty).peakHeights(currentFile) = peakData(1,5);
-                        currentFeatureStruct(firstEmpty).peakAreas(currentFile) = peakData(1,6);
-                        currentFeatureStruct(firstEmpty).entropy(currentFile) = peakData(1,7);
-                        currentFeatureStruct(firstEmpty).signal2Noise(currentFile) = peakData(1,8);
-                        currentFeatureStruct(firstEmpty).asymmetry = peakData(1,10);
-                    
+                        currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
+
                     elseif matchingRT == 1 %single feature -> store
-                        currentFeatureStruct(id).peakLocations(currentFile) = peakData(1,1);
-                        currentFeatureStruct(id).retentionTimes(currentFile) = peakData(1,2);
-                        currentFeatureStruct(id).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
-                        currentFeatureStruct(id).peakHeights(currentFile) = peakData(1,5);
-                        currentFeatureStruct(id).peakAreas(currentFile) = peakData(1,6);
-                        currentFeatureStruct(id).entropy(currentFile) = peakData(1,7);
-                        currentFeatureStruct(id).signal2Noise(currentFile) = peakData(1,8);
-                        %average retentionTime
-                        currentFeatureStruct(id).retentionTime = mean([currentFeatureStruct(id).retentionTime;peakData(1,2)],'omitnan');
+                        if isnan(currentFeatureStruct(id).peakLocations(currentFile)) %check if a peak is already present
+                            currentFeatureStruct(id).peakLocations(currentFile) = peakData(1,1);
+                            currentFeatureStruct(id).retentionTimes(currentFile) = peakData(1,2);
+                            currentFeatureStruct(id).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                            currentFeatureStruct(id).peakHeights(currentFile) = peakData(1,5);
+                            currentFeatureStruct(id).peakAreas(currentFile) = peakData(1,6);
+                            currentFeatureStruct(id).entropy(currentFile) = peakData(1,7);
+                            currentFeatureStruct(id).signal2Noise(currentFile) = peakData(1,8);
+                            %average retentionTime
+                            currentFeatureStruct(id).retentionTime = mean([currentFeatureStruct(id).retentionTime;peakData(1,2)],'omitnan');
+                        else
+                            currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
+                        end
 
                     else %multiple matching features -> store based on asymmetry factor
                         [~,idA] = min(vertcat(currentFeatureStruct(id).asymmetry)-currentAsymmetry);
-                        currentFeatureStruct(idA).peakLocations(currentFile) = peakData(1,1);
-                        currentFeatureStruct(idA).retentionTimes(currentFile) = peakData(1,2);
-                        currentFeatureStruct(idA).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
-                        currentFeatureStruct(idA).peakHeights(currentFile) = peakData(1,5);
-                        currentFeatureStruct(idA).peakAreas(currentFile) = peakData(1,6);
-                        currentFeatureStruct(idA).entropy(currentFile) = peakData(1,7);
-                        currentFeatureStruct(idA).signal2Noise(currentFile) = peakData(1,8);
-                        %average retentionTime
-                        currentFeatureStruct(idA).retentionTime = mean([currentFeatureStruct(idA).retentionTime;peakData(1,2)],'omitnan');
+                        if isnan(currentFeatureStruct(idA).peakLocations(currentFile)) %check if a peak is already present
+                            currentFeatureStruct(idA).peakLocations(currentFile) = peakData(1,1);
+                            currentFeatureStruct(idA).retentionTimes(currentFile) = peakData(1,2);
+                            currentFeatureStruct(idA).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                            currentFeatureStruct(idA).peakHeights(currentFile) = peakData(1,5);
+                            currentFeatureStruct(idA).peakAreas(currentFile) = peakData(1,6);
+                            currentFeatureStruct(idA).entropy(currentFile) = peakData(1,7);
+                            currentFeatureStruct(idA).signal2Noise(currentFile) = peakData(1,8);
+                            %average retentionTime
+                            currentFeatureStruct(idA).retentionTime = mean([currentFeatureStruct(idA).retentionTime;peakData(1,2)],'omitnan');
+                        else
+                            currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
+                        end
                     end
                     %remove stored peak from list
                     peakData(1,:) = [];
@@ -584,23 +580,33 @@ classdef LCData < RawData
 
             output.feature = storedFeatures;
             output.dataSize = length(output.feature);
+
         end
 
         function outputStruct = GatherMS2Spectra(obj,outputStruct)
             %check if MSn data is already loaded
-            if isscalar(obj.RawDataFileObj.DataMS2.peakDataMS2)
-                obj = obj.ReadData(obj.Files,2);
+            if isscalar(obj.RawDataFileObj.centroidedDataMS2)
+                obj = obj.ReadData(obj.Files,obj.SeparationType);
             end
-            
-            rttol = obj.RTTol;
-            mztol = obj.mzTol;
-            mztolUnit = obj.mzTolUnit;
 
-            times = obj.RawDataFileObj.DataMS2.timeDataMS2;
+            %%%%%
+            % test tolerances
+            % rttol = obj.RTTol;
+            % mztol = obj.mzTol;
+            % mztolUnit = obj.mzTolUnit;
+
+            mzTol = 0.05;
+            mztolUnit = "Da";
+            rttol = 10;
+            mergeMZtol = 0.1;
+            %%%%%%
+            
+
+            times = obj.RawDataFileObj.timeDataMS2;
             times = vertcat(times{:});
-            scans = obj.RawDataFileObj.DataMS2.peakDataMS2;
+            scans = obj.RawDataFileObj.centroidedDataMS2;
             scans = vertcat(scans{:});
-            precursor = obj.RawDataFileObj.DataMS2.precursorMass;
+            precursor = obj.RawDataFileObj.molecularPrecursorMass;
             precursor = vertcat(precursor{:});
                 
             features = outputStruct.feature;
@@ -609,7 +615,7 @@ classdef LCData < RawData
                 idM = [];
                 switch mztolUnit
                     case "Da"
-                        idM = abs(precursor-features(n).mass_measured) <= mztol;
+                        idM = abs(precursor-features(n).mass_measured) <= mzTol;
                     case "ppm"
                         idM = abs(precursor-features(n).mass_measured)./features(n).mass_measured*10^6 <= mzTol;
                 end
@@ -618,12 +624,17 @@ classdef LCData < RawData
                 foundScans = scans(id);
                 %remove possible empty scans
                     foundScans(cellfun(@isempty, foundScans)) = [];
-                    if numel(foundScans) > 1 %average scan if multiple are present
+                    if numel(foundScans) > 1 %multiple scans, align spectra and average
                         fakeTimes = 1:numel(foundScans);
-                        [mzroi,MSroi,~] = ROIpeaks3(foundScans,0,mztol,errorUnit,1,fakeTimes);
+                        [mzroi,MSroi,~] = ROIpeaks3(foundScans,0,mergeMZtol,mztolUnit,1,fakeTimes);
+                        MSroi = mean(MSroi);
                         %rescale
                         MSroi = MSroi./max(MSroi,[],"all");
                         foundScans = [mzroi;MSroi]';
+                    elseif isscalar(foundScans) % one found scan, unpack cell
+                        foundScans = foundScans{:};
+                    else % no found scan
+                        foundScans = [];
                     end
                     features(n).spectrumMS2 = foundScans;
             end

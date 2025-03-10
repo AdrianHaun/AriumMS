@@ -1,7 +1,7 @@
-function ScanDataMS1 = readmzCDF(dataPath)
+function [ScanDataMS1,ScanDataMS2] = readmzCDF(dataPath)
 
 arguments
-    dataPath            (1,1) string
+    dataPath    (1,1) string
 end
 
 ScanDataMS1 = struct('profileDataMS1',[],...
@@ -14,5 +14,14 @@ mzCDFStruct = mzcdfread(dataPath,'Verbose',false);
 [peakList, retentionTimes] = mzcdf2peaks(mzCDFStruct);
 
 
-ScanDataMS1.peakDataMS1 = peakList;
+ScanDataMS1.profileDataMS1 = peakList;
 ScanDataMS1.timeDataMS1 = retentionTimes;
+
+%output dummy MS2 data struct for compatibility with other MS file
+%processing functions
+ScanDataMS2 = struct('profileDataMS2',[],...
+    'timeDataMS2',[],...
+    'polarityMS2',[],...
+    'precursorMass',[],...
+    'fragmentationEnergy',[],...
+    'fragmentationType',[]);
