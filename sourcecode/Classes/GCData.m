@@ -58,10 +58,10 @@ classdef GCData < RawData
             FileLocs(id)=[];
             nData = nData-sum(id);
 
+            progressBar.Message = "Loading files";
             %check if files already loaded then skip loading stage
             test = obj.RawDataFileObj.centroidedDataMS1(1,1);
             if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= size(obj.RawDataFileObj.centroidedDataMS1,1)
-                progressBar.Message = "Loading files";
                 obj = obj.ReadData(FileLocs,obj.SeparationType);
             end
             progressBar.Value = 0.33;
@@ -668,11 +668,11 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                 alingedSpectra = [mzroi;MSroi]';
                 CompoundScores = InnerFeatScores(alingedSpectra);
 
-                if all(CompoundScores(:,1) >= 700)
+                if all(CompoundScores(:,1) >= 900)
                     continue
                 else
                     %split feature
-                    id = CompoundScores(:,1) < 700;
+                    id = CompoundScores(:,1) < 900;
                     
                     
 
