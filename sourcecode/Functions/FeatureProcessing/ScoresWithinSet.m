@@ -1,4 +1,5 @@
-function CompundScores = InnerFeatScores(MSnSpectraMatrix)
+function CompundScores = ScoresWithinSet(MSnSpectraMatrix)
+
 Intensities = MSnSpectraMatrix(:,2:end);
 %mass weighted intensities
 Intensities = Intensities.*MSnSpectraMatrix(:,1);

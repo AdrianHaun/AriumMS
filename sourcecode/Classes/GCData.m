@@ -531,10 +531,39 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                     % handle matching peaks
                     if sum(idx) == 0 %no matching peaks
                         continue
-                    elseif sum(idx) > 1 %use peak with lower time tolerance
-                        [~,idmin] = min(abs(IntegrationResults(file).peakRetentionTime - currentFeature(1,2)));
+
+                    elseif sum(idx) == 1 && ~all(isnan(peakLocation)) %compare spectra if already peak stored in feature
+                        currentSpectrum = spectrum(~cellfun(@isempty, spectrum));
+                        currentSpectrum = vertcat(currentSpectrum{:});
+                        %build current average spectrum
+                        currentSpectrum = AlignSpectra(currentSpectrum,"average");
+                        %gather possible spectra
+                        possibleSpectra = IntegrationResults(file).spectrumMS2(idx);
+                        possibleSpectra = AlignSpectra(possibleSpectra,"normal");
+                        %calculate scores
+                        [CompoundScores,~] = ScoresBetweenSets(currentSpectrum,possibleSpectra);
+                        if all(CompoundScores(:,1) < 700) %features don´t match 
+                            continue
+                        end
+                        
+                    elseif sum(idx) > 1 %use feat with higher Similarity score
+                        currentSpectrum = spectrum(~cellfun(@isempty, spectrum));
+                        currentSpectrum = vertcat(currentSpectrum{:});
+                        %build current average spectrum
+                        currentSpectrum = AlignSpectra(currentSpectrum,"average");
+                        %gather possible spectra
+                        possibleSpectra = IntegrationResults(file).spectrumMS2(idx);
+                        possibleSpectra = AlignSpectra(possibleSpectra,"normal");
+                        %calculate scores
+                        [CompoundScores,~] = ScoresBetweenSets(currentSpectrum,possibleSpectra);
+                        if all(CompoundScores(:,1) < 700) %no matching feature 
+                            continue
+                        end
+                        %get id of feature with higher score
+                        idmax = CompoundScores(CompoundScores(:,1)==max(CompoundScores(:,1)),3);
+                        location = find(idx);
                         idx = false(size(idx));
-                        idx(idmin) = true;
+                        idx(location(idmax)) = true;
                     end
                     %store found peak information
                     areas(1,file) = IntegrationResults(file).peakArea(idx);
@@ -637,19 +666,16 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                 "spectrumMS1",cell(1),...
                 "spectrumMS2",cell(1));
 
-            mzerror = 0.10;
-            errorUnit = "Da";
-
             for n = 1:length(featureStruct)
                 
-                spectra = featureStruct(n).spectrumMS1;
+                spectra = featureStruct(n).spectrumMS2;
                 if sum(~cellfun("isempty",spectra)) <= 1 %only one file with peak or no spectra
                     continue
                 end
-
+                spectra(cellfun(@isempty,spectra)) = [];
                 % clean scans
                 for j = 1:width(spectra)
-                    data = spectra{1,j};
+                    data = spectra{1,j}{:};
                     if isempty(data)
                         continue
                     end
@@ -661,22 +687,26 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                 originalFileID = 1:numel(spectra);
                 originalFileID(cellfun(@isempty,spectra)) = [];
                 spectra(cellfun(@isempty,spectra)) = [];
-                %align scans
-                %synthetic timevector
-                times = 1:numel(spectra);
-                [mzroi,MSroi,~] = ROIpeaks3(spectra',0,mzerror,errorUnit,1,times);
-                alingedSpectra = [mzroi;MSroi]';
-                CompoundScores = InnerFeatScores(alingedSpectra);
+                
+                alingedSpectra = AlignSpectra(spectra);
+                CompoundScores = ScoresWithinSet(alingedSpectra);
+                % rebuild original file
+                for file = 1:numel(originalFileID)
+                    CompoundScores(CompoundScores==file) = originalFileID(file);
+                end
 
-                if all(CompoundScores(:,1) >= 900)
+                if all(CompoundScores(:,1) >= 700)
                     continue
                 else
                     %split feature
-                    id = CompoundScores(:,1) < 900;
-                    
-                    
 
-
+                    idtoKeep = CompoundScores(CompoundScores(:,1) >= 700,2:3);
+                    idtoKeep = unique(idtoKeep);
+                    idtoSplit = CompoundScores(CompoundScores(:,1) < 700,2:3);
+                    idtoSplit = unique(idtoSplit);
+                    id = any(idtoSplit == idtoKeep,1);
+                    idtoSplit(id) = [];
+                    
                 end
 
             end
