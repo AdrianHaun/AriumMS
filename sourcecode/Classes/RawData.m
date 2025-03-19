@@ -6,6 +6,7 @@ classdef RawData
         FileNames           (:,1) string
         Files               (:,1) string
         BlankFiles          (:,1) string
+        GroupName           (:,1) string
         % Main Processing Options
         MSFileType          (1,1) string {mustBeMember(MSFileType,["profile","centroid"])} = "profile"
         BLKSubtraction      (1,1) logical = false
@@ -18,7 +19,6 @@ classdef RawData
         MSalign             (1,1) logical = false
         Peakalign           (1,1) logical = false
         ScalingCorr         (1,1) logical = false
-
         % ROI parameter
         thresh              (1,1) double {mustBeInteger,mustBePositive} = 5000
         mzerror             (1,1) double {mustBePositive} = 0.01
@@ -95,18 +95,22 @@ classdef RawData
         ISMassFound         (1,:) double
         ISdelta             (:,:) double
         mzCorrectionFcn     (1,1)
+        %% Plot
+        mainWindow          matlab.ui.Figure
 
         %testing variables
         Output
-        mainWindow          matlab.ui.Figure
+        
     end
 
     methods
-        function obj = RawData(appWindow)
+        function obj = RawData(groupNumber,appWindow)
             %Construct an instance of this class
             if isgraphics(appWindow)
                 obj.mainWindow = appWindow;
             end
+            
+            obj.GroupName = "Group " + groupNumber;
             obj.RawDataFile = tempname +".mat";
             obj.RawDataFileObj = matfile(obj.RawDataFile,Writable=true);
 
@@ -232,7 +236,7 @@ classdef RawData
                     case "GC"
                         %centroid profile data
                         ms1{n,1}.centroidDataMS1 = CentroidScans(ms1{n,1}.profileDataMS1);
-                        
+
                     otherwise
                         %remove possible empty scans in ms2
                         emptyScans = cellfun(@isempty, ms2{n,1}.profileDataMS2);
@@ -1151,8 +1155,6 @@ classdef RawData
 
         function outputStruct = FindOriginalScans(obj,inputStruct)
             outputStruct = inputStruct;
-            error = obj.mzerror;
-            errorUnit = obj.mzErrorUnit;
 
             allScans = obj.RawDataFileObj.profileDataMS1;
             % append all scans with spacers in between, to match processing
@@ -1167,29 +1169,19 @@ classdef RawData
 
             parfor n = 1: length(inputStruct)
                 avgSpectra = cell(1,numFiles);
-                borders = inputStruct(n).peakBorders;
+                location = inputStruct(n).peakLocations;
 
                 for f = 1:numFiles
                     %check if borders contain NaN then skip iteration
-                    if any(isnan(borders(:,f)))
+                    if any(isnan(location(:,f)))
                         continue
                     end
                     %select spectra in peak range
-                    scans = allScans(borders(1,f):borders(2,f));
+                    scans = allScans(location(1,f));
                     %remove possible empty scans
                     scans(cellfun(@isempty, scans)) = [];
-                    if numel(scans) > 1 %average scan if multiple are present
-                        times = 1:numel(scans);
-                        [mzroi,MSroi,~] = ROIpeaks3(scans,0,error,errorUnit,1,times);
-                        %calculate average spectrum
-                        MSroi = mean(MSroi);
-                        %rescale
-                        MSroi = MSroi./max(MSroi,[],"all");
-                        %reorder output
-                        avgSpectra{1,f} = [mzroi;MSroi]';
-                    else
-                        avgSpectra{1,f} = scans{1,1};
-                    end
+                    %average scan if multiple are present
+                    avgSpectra{1,f} = AlignSpectra(scans,"normal","high","false");
                 end
                 outputStruct(n).spectrumMS1 = avgSpectra;
             end
@@ -1239,7 +1231,7 @@ classdef RawData
                     end
 
                 otherwise %ESI
-                    
+
                     % calculate formula
                     % ESI -> mass decomposition
 
@@ -1269,8 +1261,8 @@ classdef RawData
                     Peak = D(IntegrationStruct(f).peakStartLocation(n,:):IntegrationStruct(f).peakEndLocation(n,:));
                     maxidx = IntegrationStruct(f).peakLocation(n)-IntegrationStruct(f).peakStartLocation(n);
                     % check normal or variant point , variant point = 1
-                    premax = Peak(1:maxidx-1)<0;
-                    postmax = Peak(maxidx+1:end)>0;
+                    premax = Peak(1:maxidx-1) < 0;
+                    postmax = Peak(maxidx+1:end) > 0;
                     VarPoints = [premax; false; postmax];
                     %calculate probability of variant point
                     p(n,1) = sum(VarPoints)/numel(VarPoints);
@@ -1364,6 +1356,129 @@ classdef RawData
                 integrationStruct(nfeats).peakArea = areas;
                 integrationStruct(nfeats).peakRetentionTime = times(integrationStruct(nfeats).peakLocation);
             end
+        end
+
+
+        function Output = ConfirmSameFeatureByMS2(Output)
+
+            featureStruct = Output.feature;
+            numFeats = length(featureStruct);
+
+            for n = 1:numFeats
+                spectra = featureStruct(n).spectrumMS2;
+                if sum(~cellfun("isempty",spectra)) <= 1 %only one file with peak or no spectra
+                    continue
+                end
+
+                %build index to original file
+                originalFileID = 1:numel(spectra);
+                originalFileID(cellfun(@isempty,spectra)) = [];
+                spectra(cellfun(@isempty,spectra)) = [];
+
+                % clean scans
+                for j = 1:width(spectra)
+                    data = spectra{1,j}{:};
+                    if isempty(data)
+                        continue
+                    end
+                    idx = data(:,2) < 0.05;
+                    data(idx,:) = [];
+                    spectra{1,j} = data;
+                end
+
+                alingedSpectra = AlignSpectra(spectra,"normal","low","true");
+                CompoundScores = ScoresWithinSet(alingedSpectra);
+                % rebuild original file
+                for file = 1:numel(originalFileID)
+                    CompoundScores(CompoundScores==file) = originalFileID(file);
+                end
+
+                if all(CompoundScores(:,1) >= 650)
+                    continue
+                else %split feature
+
+                    idtoKeep = CompoundScores(CompoundScores(:,1) >= 650,2:3);
+                    idtoKeep = unique(idtoKeep);
+                    idtoSplit = CompoundScores(CompoundScores(:,1) < 650,2:3);
+                    idtoSplit = unique(idtoSplit);
+                    id = any(idtoSplit == idtoKeep,1);
+                    idtoSplit(id) = [];
+
+                    %check number of Peaks to remove
+                    if isempty(idtoSplit)       %none, because of overlap
+                        continue
+                    elseif isempty(idtoKeep)    %all, keep first entry remove the rest
+                        idtoSplit(1) = [];
+                    end
+
+                    splitFeatures = SplitFeature(featureStruct(n),idtoSplit);
+                    %append
+                    featureStruct(n) = splitFeatures(1);
+                    featureStruct = [featureStruct;splitFeatures(2:end)];
+                end
+            end
+            Output.feature = featureStruct;
+        end
+
+        function Output = ConfirmSameFeatureByIsotopeDistribution(Output)
+
+            featureStruct = Output.feature;
+            numFeats = length(featureStruct);
+
+            for n = 1:numFeats
+                spectra = featureStruct(n).spectrumMS1;
+                if sum(~cellfun("isempty",spectra)) <= 1 %only one file with peak or no spectra
+                    continue
+                end
+
+                %build index to original file
+                originalFileID = 1:numel(spectra);
+                originalFileID(cellfun(@isempty,spectra)) = [];
+                spectra(cellfun(@isempty,spectra)) = [];
+
+                % clean scans
+                for j = 1:width(spectra)
+                    data = spectra{1,j}{:};
+                    if isempty(data)
+                        continue
+                    end
+                    idx = data(:,2) < 0.05;
+                    data(idx,:) = [];
+                    spectra{1,j} = data;
+                end
+
+                alingedSpectra = AlignSpectra(spectra,"average","high","true");
+                CompoundScores = ScoresWithinSet(alingedSpectra);
+                % rebuild original file
+                for file = 1:numel(originalFileID)
+                    CompoundScores(CompoundScores==file) = originalFileID(file);
+                end
+
+                if all(CompoundScores(:,1) >= 650)
+                    continue
+                else %split feature
+
+                    idtoKeep = CompoundScores(CompoundScores(:,1) >= 650,2:3);
+                    idtoKeep = unique(idtoKeep);
+                    idtoSplit = CompoundScores(CompoundScores(:,1) < 650,2:3);
+                    idtoSplit = unique(idtoSplit);
+                    id = any(idtoSplit == idtoKeep,1);
+                    idtoSplit(id) = [];
+
+                    %check number of Peaks to remove
+                    if isempty(idtoSplit)       %none, because of overlap
+                        continue
+                    elseif isempty(idtoKeep)    %all, keep first entry remove the rest
+                        idtoSplit(1) = [];
+                    end
+
+                    splitFeatures = SplitFeature(featureStruct(n),idtoSplit);
+                    %append
+                    featureStruct(n) = splitFeatures(1);
+                    featureStruct = [featureStruct;splitFeatures(2:end)];
+                end
+            end
+            Output.feature = featureStruct;
         end
 
     end

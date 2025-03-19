@@ -2,7 +2,6 @@ classdef GCData < RawData
     % Class for storing group settings and performing functions from Raw
     % data until Feature data stage
     properties
-        GroupName (1,1) string
         SeparationType (1,1) string = "GC"
     end
 
@@ -13,8 +12,7 @@ classdef GCData < RawData
                 groupNumber = 0;
                 window = 0;
             end
-            obj = obj@RawData(window);
-            obj.GroupName = "Group " + groupNumber;
+            obj = obj@RawData(groupNumber,window);
             % set default parameters
             obj.mzerror = 0.1;
             obj.mzErrorUnit = "Da";
@@ -24,11 +22,11 @@ classdef GCData < RawData
             obj.mzTol = 0.05;
             obj.mzTolUnit = "Da";
         end
-        
+
 
         %% Data Processing
         function [Output,obj] = BatchProcess(obj,varargin)
-           
+
             %check if old results exist and delete them
             if isfile(obj.ROIDataFile)
                 delete(obj.ROIDataFile)
@@ -180,27 +178,27 @@ classdef GCData < RawData
             progressBar.Message = "Integrating Peaks";
             IntegrationData = obj.GCIntegrate;
             progressBar.Value = 0.9;
-            
+
             progressBar.Message = "Processing found Features";
             IntegrationData = obj.GatherEISpectra(IntegrationData);
             IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
             IntegrationData = obj.FileSortPeaks(IntegrationData);
             IntegrationData = obj.mergeDuplicatePeaksWithinFile_GC(IntegrationData);
 
-            
+
 
             % Build Storage Arrays
             Output = obj.BuildStorageArrays_GC(IntegrationData);
 
             % confirm same feature by MS2 comparison
-            Output = obj.ConfirmSameGCFeature(Output);
+            Output = obj.ConfirmSameFeatureByMS2(Output);
 
             % Occurence filter
             Output = obj.OccurenceFilterFeatures(Output);
-            
+
             %build average EI (MS2) spectrum
             Output.feature = obj.FinalizeEISpectra(Output.feature);
-            
+
             %fill remaining fields
             Output = obj.FinalizeBatchOutput(Output);
             progressBar.Value = 0.95;
@@ -208,7 +206,7 @@ classdef GCData < RawData
             %apply scaling
             progressBar.Message = "Apply scaling";
             Output = obj.GroupAndSampleScaling(Output);
-            
+
             progressBar.Message = "Group processing successful";
             progressBar.Value = 1;
 
@@ -434,7 +432,7 @@ classdef GCData < RawData
             end
         end
 
-function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
+        function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             nFiles = numel(obj.Files);
 
             %preallocate Output struct
@@ -540,10 +538,10 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                         possibleSpectra = AlignSpectra(possibleSpectra,"normal");
                         %calculate scores
                         [CompoundScores,~] = ScoresBetweenSets(currentSpectrum,possibleSpectra);
-                        if all(CompoundScores(:,1) < 700) %features don´t match 
+                        if all(CompoundScores(:,1) < 700) %features don´t match
                             continue
                         end
-                        
+
                     elseif sum(idx) > 1 %use feat with higher Similarity score
                         currentSpectrum = spectrum(~cellfun(@isempty, spectrum));
                         currentSpectrum = vertcat(currentSpectrum{:});
@@ -554,7 +552,7 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                         possibleSpectra = AlignSpectra(possibleSpectra,"normal");
                         %calculate scores
                         [CompoundScores,~] = ScoresBetweenSets(currentSpectrum,possibleSpectra);
-                        if all(CompoundScores(:,1) < 700) %no matching feature 
+                        if all(CompoundScores(:,1) < 700) %no matching feature
                             continue
                         end
                         %get id of feature with higher score
@@ -573,7 +571,7 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                     signal2Noise(1,file) = IntegrationResults(file).signal2Noise(idx);
                     entropy(1,file) = IntegrationResults(file).entropy(idx);
                     spectrum{1,file} = IntegrationResults(file).spectrumMS2(idx);
-                    xic{1,file} = XIC(peakBorders(1,file):peakBorders(1,file),:);
+                    xic{1,file} = full(XIC(peakBorders(1,file):peakBorders(2,file),:));
 
                     %delete peaks from input struct
                     IntegrationResults(file).mass(idx) = [];
@@ -615,66 +613,5 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             output.feature = featureStruct;
         end
 
-
-        function Output = ConfirmSameGCFeature(obj,Output)
-            
-            featureStruct = Output.feature;           
-            numFeats = length(featureStruct);
-
-            for n = 1:numFeats
-                spectra = featureStruct(n).spectrumMS2;
-                if sum(~cellfun("isempty",spectra)) <= 1 %only one file with peak or no spectra
-                    continue
-                end
-
-                %build index to original file
-                originalFileID = 1:numel(spectra);
-                originalFileID(cellfun(@isempty,spectra)) = [];
-                spectra(cellfun(@isempty,spectra)) = [];
-
-                % clean scans
-                for j = 1:width(spectra)
-                    data = spectra{1,j}{:};
-                    if isempty(data)
-                        continue
-                    end
-                    idx = data(:,2) < 0.05;
-                    data(idx,:) = [];
-                    spectra{1,j} = data;
-                end
-                
-                alingedSpectra = AlignSpectra(spectra);
-                CompoundScores = ScoresWithinSet(alingedSpectra);
-                % rebuild original file
-                for file = 1:numel(originalFileID)
-                    CompoundScores(CompoundScores==file) = originalFileID(file);
-                end
-
-                if all(CompoundScores(:,1) >= 650)
-                    continue
-                else %split feature
-                    
-                    idtoKeep = CompoundScores(CompoundScores(:,1) >= 650,2:3);
-                    idtoKeep = unique(idtoKeep);
-                    idtoSplit = CompoundScores(CompoundScores(:,1) < 650,2:3);
-                    idtoSplit = unique(idtoSplit);
-                    id = any(idtoSplit == idtoKeep,1);
-                    idtoSplit(id) = [];
-
-                    %check number of Peaks to remove
-                    if isempty(idtoSplit)       %none, because of overlap
-                        continue
-                    elseif isempty(idtoKeep)    %all, keep first entry remove the rest
-                        idtoSplit(1) = [];   
-                    end
-                    
-                    splitFeatures = SplitFeature(featureStruct(n),idtoSplit);
-                    %append
-                    featureStruct(n) = splitFeatures(1);
-                    featureStruct = [featureStruct;splitFeatures(2:end)];
-                end
-            end
-
-        end
     end
 end

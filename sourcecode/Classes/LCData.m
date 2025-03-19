@@ -2,21 +2,18 @@ classdef LCData < RawData
     % Class for storing group settings and performing functions from Raw
     % data until Feature data stage
     properties
-        GroupName (1,1) string
         SeparationType (1,1) string = "LC"
     end
 
     methods
-        function obj = LCData(groupNumber)
+        function obj = LCData(groupNumber,window)
             %Construct an instance of this class
             if nargin == 0
                 groupNumber = 0;
+                window = 0;
             end
-            obj = obj@RawData;
-            obj.GroupName = "Group " + groupNumber;
+            obj = obj@RawData(groupNumber,window);
         end
-
-        
 
         %% Data Processing
         function [Output,obj] = BatchProcess(obj,varargin)
@@ -31,6 +28,9 @@ classdef LCData < RawData
                 obj = obj.SetOptimizationOptions(mode,bayesOptions);
             elseif isscalar(varargin)
                 error("Wrong number of inputs")
+            else
+                title = "Processing " + obj.GroupName;
+                progressBar = uiprogressdlg(obj.mainWindow,"Title",title,"Message","Preparation",Value=0);
             end
 
             nFiles = size(obj.Files,1);
@@ -46,11 +46,13 @@ classdef LCData < RawData
             FileLocs(id)=[];
             nData = nData-sum(id);
 
+            progressBar.Message = "Loading files";
             %check if files already loaded then skip loading stage
             test = obj.RawDataFileObj.centroidedDataMS1;
             if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= height(test)
                 obj = obj.ReadData(FileLocs,obj.SeparationType);
             end
+            progressBar.Value = 0.33;
             clearvars test FileLocs id
 
             %build TempDataFile
@@ -74,11 +76,15 @@ classdef LCData < RawData
 
             obj.nScans = cellfun(@numel,obj.TempDataFileObj.TimeCells);
             if obj.MSalign == true
+                progressBar.Message = "Aligning MS Scans";
                 obj = obj.AlignScans("batch");
+                progressBar.Value = 0.4;
             end
 
             % ROI Search
+            progressBar.Message = "Searching for ROIs";
             obj = obj.AutoROI("batch");
+            progressBar.Value = 0.5;
 
             % Average BLK
             if obj.BLKSubtraction == true && nBLK > 1
@@ -88,22 +94,30 @@ classdef LCData < RawData
 
             %Common Contaminant filter
             if obj.ContaminantFilter == true
+                progressBar.Message = "Removing Contaminants";
                 obj = obj.removeContaminants;
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Baseline Correction
             if obj.BaseCorr == true
+                progressBar.Message = "Correcting Baseline";
                 obj = obj.CorrectBaseline("batch");
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Smoothing
             if obj.Smoothing == true
+                progressBar.Message = "Smoothing Peaks";
                 obj = obj.SmoothPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Peak Align
             if obj.Peakalign == true && nData > 1
+                progressBar.Message = "Aligning Peaks";
                 obj = obj.AlignPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             if obj.BLKSubtraction == true % Separate Blank data from Sample data
@@ -115,6 +129,7 @@ classdef LCData < RawData
 
             % subtract blank before IS normalization
             if obj.BLKSubtraction == true && obj.ISOrder == "BlankIS"
+                progressBar.Message = "Subtracting Blank";
                 peakCells = obj.TempDataFileObj.ROICells;
                 BLKMat = obj.TempDataFileObj.ROIMatBLK;
                 parfor id=1:size(peakCells,1)
@@ -123,23 +138,27 @@ classdef LCData < RawData
                     peakCells{id,1} = max(peakCells{id,1},0);
                 end
                 obj.TempDataFileObj.ROICells = peakCells;
+                progressBar.Value = progressBar.Value + 0.05;
             end
             
             % pad arrays with Maximum peak width*3 Scans to eliminate
             % integration interference between matrices
             obj = obj.FinalizeROI;
 
-            clearvars -except obj
+            clearvars -except obj progressBar
             %% Integration Stage
             % Find and Integrate IS separate
             if obj.ISTDCorr == true
+                progressBar.Message = "Searching for Internal Standard";
                 obj = obj.IntegrateIS;
                 if ~isempty(obj.ISValue)
                     obj = obj.ISNormalize;
                 end
+                 progressBar.Value = progressBar.Value + 0.05;
             end
             % BLK Subtraction after IS Correction
             if obj.BLKSubtraction == true && obj.ISOrder == "ISBlank"
+                progressBar.Message = "Subtracting Blank";
                 MSroi = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScansPadded);
                 MatBLK = obj.TempDataFileObj.ROIMatBLK;
                 parfor id=1:size(MSroi,1)
@@ -150,16 +169,22 @@ classdef LCData < RawData
                 id = all(MSroi >= obj.thresh,1);
                 obj.TempDataFileObj.ROIMat = MSroi(:,id);
                 obj.TempDataFileObj.ROImzVec(:,~id) = [];
+                progressBar.Value = progressBar.Value + 0.05;
             end
             % mass correction
             if obj.MassCal == true && ~isempty(obj.ISValue)
+                progressBar.Message = "Performing IS mass correction";
                 obj = obj.ISMassCorrection;
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Integrate all Peaks
             IDX = true(1,size(obj.TempDataFileObj.ROIMat,2));
+            progressBar.Message = "Integrating Peaks";
             IntegrationData = obj.LCIntegrate(IDX);
+            progressBar.Value = 0.9;
 
+            progressBar.Message = "Processing found Features";
             IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
             IntegrationData = obj.FileSortPeaks(IntegrationData);
 
@@ -173,13 +198,26 @@ classdef LCData < RawData
 
             % Build Storage Arrays and filter by number of occurences
             [Output,obj] = obj.BuildStorageArrays_LC(IntegrationData);
-            % apply scaling
-            Output = obj.GroupAndSampleScaling(Output);
+
+            %
+            Output = obj.ConfirmSameFeatureByIsotopeDistribution(Output);
+
+            % Occurence filter
+            Output = obj.OccurenceFilterFeatures(Output);
 
             %gather MS2 spectra
             Output = obj.GatherMS2Spectra(Output);
+            
+            %fill remaining fields
+            Output = obj.FinalizeBatchOutput(Output);
 
-           
+            % apply scaling
+            progressBar.Message = "Apply scaling";
+            Output = obj.GroupAndSampleScaling(Output);
+            
+            progressBar.Message = "Group processing successful";
+            progressBar.Value = 1;
+
             obj.Output = Output;
 
             %processing cleanup
@@ -195,6 +233,7 @@ classdef LCData < RawData
             %delete Temprorary file
             delete(obj.TempDataFile)
             obj.TempDataFile = "";
+            close(progressBar)
         end
 
         %% helper functions
@@ -453,10 +492,8 @@ classdef LCData < RawData
             timeTolerance = obj.RTTol;
 
             if isscalar(varargin)
-                minDataPoints = nFiles;
                 isISIntegration = true;
             else
-                minDataPoints = ceil(nFiles*obj.minOccurence);
                 isISIntegration = false;
             end
 
@@ -555,32 +592,14 @@ classdef LCData < RawData
 
             %unzip features
             storedFeatures = vertcat(storedFeatures{:});
-
-            % remove features with less peaks than required minimum
-            numElements = zeros(length(storedFeatures),1);
-            for ix = 1:length(storedFeatures)
-                numElements(ix) = nnz(~isnan(storedFeatures(ix).peakHeights));
-            end
-            idx = numElements < minDataPoints;
-
-            %sum number of removed peaks
-            output.occurenceFiltered = sum(numElements(idx),"all");
-            storedFeatures(idx) = [];
             %remove asymmetry field
             storedFeatures = rmfield(storedFeatures,"asymmetry");
             if isISIntegration == false
-                %build featureID
-                for ix = 1:length(storedFeatures)
-                    storedFeatures(ix).featID = storedFeatures(ix).mass_measured + "Da@" + storedFeatures(ix).retentionTime + "s_" + obj.GroupName;
-                end
-
                 %gather original scans
                 storedFeatures = obj.FindOriginalScans(storedFeatures);
             end
 
             output.feature = storedFeatures;
-            output.dataSize = length(output.feature);
-
         end
 
         function outputStruct = GatherMS2Spectra(obj,outputStruct)
@@ -598,7 +617,6 @@ classdef LCData < RawData
             mzTol = 0.05;
             mztolUnit = "Da";
             rttol = 10;
-            mergeMZtol = 0.1;
             %%%%%%
             
 
@@ -624,15 +642,8 @@ classdef LCData < RawData
                 foundScans = scans(id);
                 %remove possible empty scans
                     foundScans(cellfun(@isempty, foundScans)) = [];
-                    if numel(foundScans) > 1 %multiple scans, align spectra and average
-                        fakeTimes = 1:numel(foundScans);
-                        [mzroi,MSroi,~] = ROIpeaks3(foundScans,0,mergeMZtol,mztolUnit,1,fakeTimes);
-                        MSroi = mean(MSroi);
-                        %rescale
-                        MSroi = MSroi./max(MSroi,[],"all");
-                        foundScans = [mzroi;MSroi]';
-                    elseif isscalar(foundScans) % one found scan, unpack cell
-                        foundScans = foundScans{:};
+                    if numel(foundScans) >= 1 
+                        foundScans = AlignSpectra(foundScans,"average","low");
                     else % no found scan
                         foundScans = [];
                     end
