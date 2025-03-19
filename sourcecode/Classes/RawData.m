@@ -806,8 +806,8 @@ classdef RawData
                     features(n).peakHeights = features(n).peakHeights/obj.GroupScale;
                     features(n).peakAreas = features(n).peakAreas/obj.GroupScale;
                     %SampleScale
-                    features(n).peakHeights = features(n).peakHeights./obj.SampScale;
-                    features(n).peakAreas = features(n).peakAreas./obj.SampScale;
+                    features(n).peakHeights = features(n).peakHeights./obj.SampScale';
+                    features(n).peakAreas = features(n).peakAreas./obj.SampScale';
                 end
                 Output.feature = features;
             end
@@ -1195,6 +1195,61 @@ classdef RawData
             end
         end
 
+        function output = OccurenceFilterFeatures(obj,output)
+            % remove features with less peaks than required minimum
+
+            nFiles = numel(obj.Files);
+            minDataPoints = ceil(nFiles*obj.minOccurence);
+            featureStruct = output.feature;
+            numElements = zeros(length(featureStruct),1);
+
+            for ix = 1:length(featureStruct)
+                numElements(ix) = nnz(~isnan(featureStruct(ix).peakHeights));
+            end
+            idx = numElements < minDataPoints;
+
+            %sum number of removed peaks
+            output.occurenceFiltered = sum(numElements(idx),"all");
+            featureStruct(idx) = [];
+
+            output.feature = featureStruct;
+        end
+
+        function output = FinalizeBatchOutput(obj,output)
+
+            output.dataSize = length(output.feature);
+
+            %build average RetentionTime and featureID
+            for ix = 1:output.dataSize
+                output.feature(ix).retentionTime = mean(output.feature(ix).retentionTimes,"all","omitmissing");
+                output.feature(ix).featID = output.feature(ix).mass_measured + "Da@" + output.feature(ix).retentionTime + "s_" + obj.GroupName;
+            end
+            % separation Type specific tasks
+
+            switch output.separationType
+                case "GC"
+
+                    for ix = 1:output.dataSize
+                        % calculate formula
+                        % GC -> database Search
+
+                        % add Adduct type
+                        output.feature(ix).adductType = "M+";
+                        % calculate corrected mass based on adduct Type or Database
+                    end
+
+                otherwise %ESI
+                    
+                    % calculate formula
+                    % ESI -> mass decomposition
+
+                    % add Adduct type
+                    % ESI check ms1 spectrum
+
+                    % calculate corrected mass based on adduct Type or Database
+            end
+
+        end
 
     end
 
@@ -1310,7 +1365,6 @@ classdef RawData
                 integrationStruct(nfeats).peakRetentionTime = times(integrationStruct(nfeats).peakLocation);
             end
         end
-
 
     end
 end

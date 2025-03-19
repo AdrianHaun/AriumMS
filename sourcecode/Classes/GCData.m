@@ -107,14 +107,14 @@ classdef GCData < RawData
             end
             % Smoothing
             if obj.Smoothing == true
-                progressBar.Message = "Correcting Baseline";
+                progressBar.Message = "Smoothing Peaks";
                 obj = obj.SmoothPeaks("batch");
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Peak Align
             if obj.Peakalign == true && nData > 1
-                progressBar.Message = "Correcting Baseline";
+                progressBar.Message = "Aligning Peaks";
                 obj = obj.AlignPeaks("batch");
                 progressBar.Value = progressBar.Value + 0.05;
             end
@@ -191,15 +191,18 @@ classdef GCData < RawData
 
             % Build Storage Arrays
             Output = obj.BuildStorageArrays_GC(IntegrationData);
-            %%%% 
+
             % confirm same feature by MS2 comparison
             Output = obj.ConfirmSameGCFeature(Output);
-            %%%%%
+
             % Occurence filter
             Output = obj.OccurenceFilterFeatures(Output);
             
             %build average EI (MS2) spectrum
             Output.feature = obj.FinalizeEISpectra(Output.feature);
+            
+            %fill remaining fields
+            Output = obj.FinalizeBatchOutput(Output);
             progressBar.Value = 0.95;
 
             %apply scaling
@@ -256,13 +259,9 @@ classdef GCData < RawData
             %gather parameters
             currentTIC = full(tics);
             currentTime = full(times);
-
-            %calculate noise level
             smoothedTIC = smoothdata(currentTIC,"gaussian",4,"omitnan");
-            noise = mean(std(currentTIC-smoothedTIC));
-            currentTIC = sum(currentTIC,2);
-            smoothedTIC = sum(smoothedTIC,2);
-
+            %calculate noise level (10th percentile of non zero values)
+            noise = prctile(currentTIC(currentTIC > 0),10);
             [~,peakLoc,peakWidth] = findpeaks(currentTIC,"WidthReference","halfheight");
             %calculate initial borders and bring in correct form
             lowerBorders = max(floor(peakLoc-peakWidth/2),1); % limit lower peak border to scan 1
@@ -273,7 +272,6 @@ classdef GCData < RawData
             IntResults.peakStartLocation = peaks(:,2);
             IntResults.peakEndLocation = peaks(:,3);
             IntResults.peakHeight = peaks(:,4);
-            peaks = [];
             IntResults = obj.FilterPeaks(IntResults,noise);
             % entropy calculation
             IntResults = obj.CalculatePeakEntropy(IntResults);
@@ -320,7 +318,7 @@ classdef GCData < RawData
                 end
             end
             IntResults.spectrumMS2 = FoundSpectra;
-            IntResults.mass = MolecularMass;
+            IntResults.mass = round(MolecularMass,1);
         end
 
 
@@ -609,70 +607,31 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
             end
 
             if isISIntegration == false
-                %build featureID
-                for ix = 1:length(featureStruct)
-                    featureStruct(ix).featID = featureStruct(ix).mass_measured + "Da@" + featureStruct(ix).retentionTime + "s_";
-                end
 
                 %gather original scans
                 featureStruct = obj.FindOriginalScans(featureStruct);
             end
 
             output.feature = featureStruct;
-            output.dataSize = length(output.feature);
         end
 
-        function output = OccurenceFilterFeatures(obj,output)
-            % remove features with less peaks than required minimum
-
-            nFiles = numel(obj.Files);
-            minDataPoints = ceil(nFiles*obj.minOccurence);
-            featureStruct = output.feature;
-            numElements = zeros(length(featureStruct),1);
-
-            for ix = 1:length(featureStruct)
-                numElements(ix) = nnz(~isnan(featureStruct(ix).peakHeights));
-            end
-            idx = numElements < minDataPoints;
-
-            %sum number of removed peaks
-            output.occurenceFiltered = sum(numElements(idx),"all");
-            featureStruct(idx) = [];
-
-            output.feature = featureStruct;
-        end
 
         function Output = ConfirmSameGCFeature(obj,Output)
             
+            featureStruct = Output.feature;           
+            numFeats = length(featureStruct);
 
-            featureStruct = Output.feature;
-            nFiles = numel(obj.Files);
-            %empty feature
-            emptyFeature = struct(...
-                "featID",strings,...
-                "mass_measured",[],...
-                "retentionTime",[],...
-                "adductType",strings,...
-                "mass_corrected",[],...
-                "formula",strings,...
-                "peakHeights",zeros(0,nFiles),...
-                "peakAreas",zeros(0,nFiles),...
-                "peakLocations",zeros(0,nFiles),...
-                "peakBorders",zeros(0,nFiles),...
-                "retentionTimes",zeros(0,nFiles),...
-                "signal2Noise",zeros(0,nFiles),...
-                "entropy",zeros(0,nFiles),...
-                "XIC",cell(1),...
-                "spectrumMS1",cell(1),...
-                "spectrumMS2",cell(1));
-
-            for n = 1:length(featureStruct)
-                
+            for n = 1:numFeats
                 spectra = featureStruct(n).spectrumMS2;
                 if sum(~cellfun("isempty",spectra)) <= 1 %only one file with peak or no spectra
                     continue
                 end
+
+                %build index to original file
+                originalFileID = 1:numel(spectra);
+                originalFileID(cellfun(@isempty,spectra)) = [];
                 spectra(cellfun(@isempty,spectra)) = [];
+
                 % clean scans
                 for j = 1:width(spectra)
                     data = spectra{1,j}{:};
@@ -683,10 +642,6 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                     data(idx,:) = [];
                     spectra{1,j} = data;
                 end
-                %build index to original file
-                originalFileID = 1:numel(spectra);
-                originalFileID(cellfun(@isempty,spectra)) = [];
-                spectra(cellfun(@isempty,spectra)) = [];
                 
                 alingedSpectra = AlignSpectra(spectra);
                 CompoundScores = ScoresWithinSet(alingedSpectra);
@@ -695,20 +650,29 @@ function output = BuildStorageArrays_GC(obj,IntegrationResults,varargin)
                     CompoundScores(CompoundScores==file) = originalFileID(file);
                 end
 
-                if all(CompoundScores(:,1) >= 700)
+                if all(CompoundScores(:,1) >= 650)
                     continue
-                else
-                    %split feature
-
-                    idtoKeep = CompoundScores(CompoundScores(:,1) >= 700,2:3);
+                else %split feature
+                    
+                    idtoKeep = CompoundScores(CompoundScores(:,1) >= 650,2:3);
                     idtoKeep = unique(idtoKeep);
-                    idtoSplit = CompoundScores(CompoundScores(:,1) < 700,2:3);
+                    idtoSplit = CompoundScores(CompoundScores(:,1) < 650,2:3);
                     idtoSplit = unique(idtoSplit);
                     id = any(idtoSplit == idtoKeep,1);
                     idtoSplit(id) = [];
-                    
-                end
 
+                    %check number of Peaks to remove
+                    if isempty(idtoSplit)       %none, because of overlap
+                        continue
+                    elseif isempty(idtoKeep)    %all, keep first entry remove the rest
+                        idtoSplit(1) = [];   
+                    end
+                    
+                    splitFeatures = SplitFeature(featureStruct(n),idtoSplit);
+                    %append
+                    featureStruct(n) = splitFeatures(1);
+                    featureStruct = [featureStruct;splitFeatures(2:end)];
+                end
             end
 
         end
