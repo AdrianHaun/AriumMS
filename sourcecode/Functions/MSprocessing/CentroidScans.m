@@ -12,8 +12,7 @@ parfor n = 1:height(CentroidedScans)
     %find mass peaks and width
     [maxInt,maxMZ,width] = findpeaks(Scan(:,2),Scan(:,1),'WidthReference','halfheight');
     %expand maxInt
-    maxInt = [zeros(height(maxInt),1),maxInt];
-
+    maxInt = zeros(height(maxInt),2);
     %compute weighted mean of mz and intensity 
     for p = 1:numel(width)
         currentMZ = maxMZ(p);
@@ -22,6 +21,7 @@ parfor n = 1:height(CentroidedScans)
         vec = Scan(id,:);
         mz = mean(vec(:,1),Weights = vec(:,2)/max(vec(:,2)));
         maxInt(p,1) = mz; 
+        maxInt(p,2) = sum(vec(:,2));
     end
     CentroidedScans{n,1} = maxInt;
 end

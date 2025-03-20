@@ -69,11 +69,19 @@ classdef LCData < RawData
             %remove scans outside RT range
             obj = obj.CutScansToSize;
             progressBar.Value = 0.33;
+            tempp = [obj.TempDataFileObj.ROICells,obj.TempDataFileObj.TimeCells];
+            assignin("base","ScansPreIsotope",tempp)
 
             % remove isotopes
             if obj.IsotopeFilter == true
                 obj = obj.FilterIsotopesScanStage;
             end
+
+            tempp = [obj.TempDataFileObj.ROICells,obj.TempDataFileObj.TimeCells];
+            assignin("base","ScansPostIsotope",tempp)
+
+            tempp = [obj.RawDataFileObj.profileDataMS1,obj.RawDataFileObj.timeDataMS1];
+            assignin("base","ScansProfile",tempp)
 
             obj.nScans = cellfun(@numel,obj.TempDataFileObj.TimeCells);
             if obj.MSalign == true
