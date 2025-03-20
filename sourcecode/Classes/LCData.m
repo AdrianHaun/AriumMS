@@ -6,13 +6,13 @@ classdef LCData < RawData
     end
 
     methods
-        function obj = LCData(groupNumber,window)
+        function obj = LCData(groupName,window)
             %Construct an instance of this class
             if nargin == 0
-                groupNumber = 0;
+                groupName = 0;
                 window = 0;
             end
-            obj = obj@RawData(groupNumber,window);
+            obj = obj@RawData(groupName,window);
         end
 
         %% Data Processing
@@ -52,7 +52,7 @@ classdef LCData < RawData
             if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= height(test)
                 obj = obj.ReadData(FileLocs,obj.SeparationType);
             end
-            progressBar.Value = 0.33;
+            
             clearvars test FileLocs id
 
             %build TempDataFile
@@ -68,6 +68,7 @@ classdef LCData < RawData
 
             %remove scans outside RT range
             obj = obj.CutScansToSize;
+            progressBar.Value = 0.33;
 
             % remove isotopes
             if obj.IsotopeFilter == true
@@ -200,7 +201,7 @@ classdef LCData < RawData
             [Output,obj] = obj.BuildStorageArrays_LC(IntegrationData);
 
             %
-            Output = obj.ConfirmSameFeatureByIsotopeDistribution(Output);
+            % Output = obj.ConfirmSameFeatureByIsotopeDistribution(Output);
 
             % Occurence filter
             Output = obj.OccurenceFilterFeatures(Output);
@@ -629,7 +630,7 @@ classdef LCData < RawData
                 
             features = outputStruct.feature;
 
-            parfor n = 1:outputStruct.dataSize
+            parfor n = 1:length(features)
                 idM = [];
                 switch mztolUnit
                     case "Da"

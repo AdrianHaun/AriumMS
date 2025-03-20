@@ -6,13 +6,13 @@ classdef GCData < RawData
     end
 
     methods
-        function obj = GCData(groupNumber,window)
+        function obj = GCData(groupName,window)
             %Construct an instance of this class
             if nargin == 0
-                groupNumber = 0;
+                groupName = 0;
                 window = 0;
             end
-            obj = obj@RawData(groupNumber,window);
+            obj = obj@RawData(groupName,window);
             % set default parameters
             obj.mzerror = 0.1;
             obj.mzErrorUnit = "Da";

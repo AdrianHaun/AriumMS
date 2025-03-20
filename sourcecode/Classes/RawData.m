@@ -104,13 +104,13 @@ classdef RawData
     end
 
     methods
-        function obj = RawData(groupNumber,appWindow)
+        function obj = RawData(groupName,appWindow)
             %Construct an instance of this class
             if isgraphics(appWindow)
                 obj.mainWindow = appWindow;
             end
             
-            obj.GroupName = "Group " + groupNumber;
+            obj.GroupName = groupName;
             obj.RawDataFile = tempname +".mat";
             obj.RawDataFileObj = matfile(obj.RawDataFile,Writable=true);
 
@@ -277,7 +277,7 @@ classdef RawData
 
             %check for empty MS2 data
             ms2 = vertcat(ms2{:});
-            if ~isempty([ms2.profileDataMS2])
+            if ~isscalar(vertcat(ms2(:).profileDataMS2))
                 obj.RawDataFileObj.profileDataMS2 = {ms2.profileDataMS2}';
                 obj.RawDataFileObj.centroidedDataMS2 = {ms2.centroidDataMS2}';
                 obj.RawDataFileObj.timeDataMS2 = {ms2.timeDataMS2}';
@@ -1438,7 +1438,7 @@ classdef RawData
 
                 % clean scans
                 for j = 1:width(spectra)
-                    data = spectra{1,j}{:};
+                    data = spectra{1,j};
                     if isempty(data)
                         continue
                     end
