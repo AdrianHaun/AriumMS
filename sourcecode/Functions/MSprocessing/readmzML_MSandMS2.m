@@ -1,34 +1,37 @@
-function [ScanDataMS1,ScanDataMS2] = readmzML_MSandMS2(DataPath)
+function [scanDataMS1,scanDataMS2] = readmzML_MSandMS2(dataPath)
 %% reads mzML files and outputs mz, Intensity and time data
 % .mzML files can be 32bit and 64bit encoded can use zlib compression, numpress compression is not yet
 % supported
 % Input: DataPath: data path to .mzML file
-
+%
 % Outputs:
 % ScanDataMS1: struct containing peak data (cell array, with two column
 % matrix mass and intensity), retention time and scan polarity
 % ScanDataMS2: struct containing MS/MS data. Peak data (cell array, with two column
 % matrix mass and intensity), retention time, scan polarity, precursor
 % mass, fragmentation energy and fragmentation type
+
 arguments
-    DataPath            (1,1) string
+    dataPath            (1,1) string {mustBeFile}
 end
 
-ScanDataMS1 = struct('profileDataMS1',[],...
+scanDataMS1 = struct('profileDataMS1',[],...
     'timeDataMS1',[],...
     'polarityMS1',[]);
 
-ScanDataMS2 = struct('profileDataMS2',[],...
+scanDataMS2 = struct('profileDataMS2',[],...
     'timeDataMS2',[],...
     'polarityMS2',[],...
     'precursorMass',[],...
     'fragmentationEnergy',[],...
     'fragmentationType',[]);
 
-doc = xmlread(DataPath);
+doc = xmlread(dataPath);
 spectrumList = doc.getElementsByTagName('spectrumList').item(0);
 % Check if the spectrum element exists
-if ~isempty(spectrumList)
+if isempty(spectrumList)
+    error("Corrupt or empty file.")
+else
     % Get the value of the scanCount attribute
     scanCountValue = str2double(spectrumList.getAttribute('count'));
     spectrumNodes = doc.getElementsByTagName('spectrum');
@@ -44,12 +47,10 @@ if ~isempty(spectrumList)
     mzBinary = mzBinary.getElementsByTagName('cvParam');
     mzPrecision = string(mzBinary.item(0).getAttribute('name'));
     mzEncoding = string(mzBinary.item(1).getAttribute('name'));
-    IntBinary = firstMZ.item(1);
-    IntBinary = IntBinary.getElementsByTagName('cvParam');
-    IntPrecision = string(IntBinary.item(0).getAttribute('name'));
-    IntEncoding = string(IntBinary.item(1).getAttribute('name'));
-else
-    error("Corrupt or empty file.")
+    intBinary = firstMZ.item(1);
+    intBinary = intBinary.getElementsByTagName('cvParam');
+    intPrecision = string(intBinary.item(0).getAttribute('name'));
+    intEncoding = string(intBinary.item(1).getAttribute('name'));
 end
 
 switch mzPrecision
@@ -62,45 +63,42 @@ switch mzPrecision
     case "64-bit integer"
         mzPrecision = 'double';
 end
-switch IntPrecision
+switch intPrecision
     case "32-bit float"
-        IntPrecision = 'single';
+        intPrecision = 'single';
     case "32-bit integer"
-        IntPrecision = 'single';
+        intPrecision = 'single';
     case "64-bit float"
-        IntPrecision = 'double';
+        intPrecision = 'double';
     case "64-bit integer"
-        IntPrecision = 'double';
+        intPrecision = 'double';
 end
 switch mzEncoding
     case "no compression"
         mzEncoding = false;
     case "zlib compression"
         mzEncoding = true;
-    case "MS-Numpress linear prediction compression"
-        error("Files that use numpress compression are not supported at this time.")
-    case "MS-Numpress linear prediction compression followed by zlib compression"
-        error("Files that use numpress compression are not supported at this time.")
+    otherwise
+        error("Files use unsupported compression type")
 end
-switch IntEncoding
+switch intEncoding
     case "no compression"
-        IntEncoding = false;
+        intEncoding = false;
     case "zlib compression"
-        IntEncoding = true;
-    case "MS-Numpress positive integer compression"
-        error("Files that use numpress compression are not supported at this time.")
-    case "MS-Numpress positive integer compression followed by zlib compression"
-        error("Files that use numpress compression are not supported at this time.")
+        intEncoding = true;
+    otherwise
+        error("Files use unsupported compression type")
 end
+
 % Initialize arrays to store the extracted data
 msLevels = zeros(scanCountValue,1);
 retentionTime = zeros(scanCountValue,1);
-CollisionEnergy = zeros(scanCountValue,1);
+collisionEnergy = zeros(scanCountValue,1);
 polarity = strings(scanCountValue,1);
-FragMethod = strings(scanCountValue,1);
-PrecursorMass = strings(scanCountValue,1);
+fragMethod = strings(scanCountValue,1);
+precursorMass = strings(scanCountValue,1);
 mzBinaryStrings = strings(scanCountValue,1);
-IntBinaryStrings = strings(scanCountValue,1);
+intBinaryStrings = strings(scanCountValue,1);
 
 % Iterate through each 'spectrum' element
 for i = 0:spectrumNodes.getLength - 1
@@ -124,23 +122,23 @@ for i = 0:spectrumNodes.getLength - 1
     Binaries = spectrumElement.getElementsByTagName('binaryDataArray');
     mzBinary = Binaries.item(0);
     mzBinaryStrings(i+1) = mzBinary.getTextContent;
-    IntBinary = Binaries.item(1);
-    IntBinaryStrings(i+1) = IntBinary.getTextContent;
+    intBinary = Binaries.item(1);
+    intBinaryStrings(i+1) = intBinary.getTextContent;
     if msLevels(i+1) > 1
-        PrecursorElement = spectrumElement.getElementsByTagName('precursorList');
-        PrecursorNode = PrecursorElement.item(0).getElementsByTagName('selectedIonList');
-        PrecursorNode = PrecursorNode.item(0).getElementsByTagName('cvParam');
-        PrecursorMass(i+1) = PrecursorNode.item(0).getAttribute('value');
-        FragmentationNode = PrecursorElement.item(0).getElementsByTagName('activation');
-        FragmentationNode = FragmentationNode.item(0).getElementsByTagName('cvParam');
-        FragMethod(i+1) = FragmentationNode.item(0).getAttribute('name');
-        CollisionEnergy(i+1) = str2double(FragmentationNode.item(1).getAttribute('value'));
+        precursorElement = spectrumElement.getElementsByTagName('precursorList');
+        precursorNode = precursorElement.item(0).getElementsByTagName('selectedIonList');
+        precursorNode = precursorNode.item(0).getElementsByTagName('cvParam');
+        precursorMass(i+1) = precursorNode.item(0).getAttribute('value');
+        fragmentationNode = precursorElement.item(0).getElementsByTagName('activation');
+        fragmentationNode = fragmentationNode.item(0).getElementsByTagName('cvParam');
+        fragMethod(i+1) = fragmentationNode.item(0).getAttribute('name');
+        collisionEnergy(i+1) = str2double(fragmentationNode.item(1).getAttribute('value'));
     end
 end
 
 %process scan data
 %remove white space from binary strings
-IntBinaryStrings = strtrim(IntBinaryStrings);
+intBinaryStrings = strtrim(intBinaryStrings);
 mzBinaryStrings = strtrim(mzBinaryStrings);
 
 scanData = cell(size(mzBinaryStrings,1),1);
@@ -150,10 +148,10 @@ for n=1:size(mzBinaryStrings,1) %decode binary strings
     else
         mzbinary = decodeUncompressed(mzBinaryStrings(n),mzPrecision);
     end
-    if IntEncoding == true
-        Intbinary = decodeCompressed(IntBinaryStrings(n),IntPrecision);
+    if intEncoding == true
+        Intbinary = decodeCompressed(intBinaryStrings(n),intPrecision);
     else
-        Intbinary = decodeUncompressed(IntBinaryStrings(n),IntPrecision);
+        Intbinary = decodeUncompressed(intBinaryStrings(n),intPrecision);
     end
     scanData{n} = [mzbinary' Intbinary'];
 end
@@ -169,28 +167,31 @@ polarity(polarity == "negative scan") = "-";
 
 %store in output structs
 idMS1 = msLevels == 1;
-ScanDataMS1.profileDataMS1 = scanData(idMS1);
-ScanDataMS1.timeDataMS1 = retentionTime(idMS1);
-ScanDataMS1.polarityMS1 = polarity(idMS1);
+scanDataMS1.profileDataMS1 = scanData(idMS1);
+scanDataMS1.timeDataMS1 = retentionTime(idMS1);
+scanDataMS1.polarityMS1 = polarity(idMS1);
 
 idMS2 = msLevels == 2;
-ScanDataMS2.profileDataMS2 = scanData(idMS2);
-ScanDataMS2.timeDataMS2 = retentionTime(idMS2);
-ScanDataMS2.polarityMS2 = polarity(idMS2);
-ScanDataMS2.precursorMass = str2double(PrecursorMass(idMS2));
-ScanDataMS2.fragmentationEnergy = CollisionEnergy(idMS2);
-ScanDataMS2.fragmentationType = FragMethod(idMS2);
+scanDataMS2.profileDataMS2 = scanData(idMS2);
+scanDataMS2.timeDataMS2 = retentionTime(idMS2);
+scanDataMS2.polarityMS2 = polarity(idMS2);
+scanDataMS2.precursorMass = str2double(precursorMass(idMS2));
+scanDataMS2.fragmentationEnergy = collisionEnergy(idMS2);
+scanDataMS2.fragmentationType = fragMethod(idMS2);
+
+%clean data
+[scanDataMS1,scanDataMS2] = cleanRawProfileScans(scanDataMS1,scanDataMS2);
 
 end
-%helper functions
 
+%helper functions
 function out = decodeUncompressed(DataString,precision)
 out = typecast(matlab.net.base64decode(DataString),'uint8');
 out = typecast(out,precision);
 end
 
-function out = decodeCompressed(DataString,precision)
-out = typecast(matlab.net.base64decode(DataString),'uint8');
+function out = decodeCompressed(dataString,precision)
+out = typecast(matlab.net.base64decode(dataString),'uint8');
 out = zmat(out,0,'zlib');
 out = typecast(out,precision);
 end

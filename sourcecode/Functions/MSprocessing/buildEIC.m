@@ -1,5 +1,5 @@
 function eic = buildEIC(peakCells,mass,tolerance,toleranceUnit)
-%buildEIC builds extracted ion chromatogram from mass scans
+%% buildEIC builds extracted ion chromatogram from mass scans
 %   Searches in each mass scan for an mz value within the supplied
 %   tolerance and build the extracted ion chromatogram intensities, then
 %   apply Gaussian smoothing.

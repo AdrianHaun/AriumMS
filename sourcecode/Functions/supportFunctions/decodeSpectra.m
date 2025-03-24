@@ -1,7 +1,6 @@
 function decodedSpectrum = decodeSpectra(encodedSpectra)
-%% decodeSpectra 
-% decodes base64 encoded mass spectra and outputs a cell array containing  
-% decoded spectra 
+%% decodeSpectra decodes base64 encoded mass spectra
+
 % input: encodedSpectra as one dimensional string array
 % output: cell array containing two column matrix. Column 1: mass, 
 %           column 2: relative intensity

@@ -1,27 +1,39 @@
-function CentroidedScans = CentroidScans(ScanData)
+function centroidedScans = centroidScans(profileScans)
+%% centroidScans takes profile MS scans and centroides them
+%
+%   Searches in each mass scan for mz peaks, takes all mz values within
+%   half height and calculates the centroided mass as mean weighted by
+%   intensity. Then sums all intensities used for mz calculation as
+%   centroided intensity.
+%
+% inputs: profileScans: cell array containing two column matrices, 
+%                    column1: mass; column 2: intensity 
+%
+% output: centroidedScans: centroided scans in the same format as the input
 
-CentroidedScans = cell(size(ScanData));
-parfor n = 1:height(CentroidedScans)
-    Scan = ScanData{n,1};
-    if isempty(Scan)
+arguments
+    profileScans (:,1) cell
+end
+
+%preallocate output
+centroidedScans = cell(size(profileScans));
+
+parfor nScan = 1:height(centroidedScans)
+    currentScan = profileScans{nScan,1};
+    if isempty(currentScan)
         continue
     end
-    [~,edges] = histcounts(Scan(:,2));
-    idx = Scan(:,2) <= edges(2)/2;
-    Scan(idx,2) = 0;
     %find mass peaks and width
-    [maxInt,maxMZ,width] = findpeaks(Scan(:,2),Scan(:,1),'WidthReference','halfheight');
-    %expand maxInt
-    maxInt = zeros(height(maxInt),2);
-    %compute weighted mean of mz and intensity 
-    for p = 1:numel(width)
-        currentMZ = maxMZ(p);
-        currentWidth = width(p);
-        id = abs(Scan(:,1)-currentMZ)<=currentWidth;
-        vec = Scan(id,:);
-        mz = mean(vec(:,1),Weights = vec(:,2)/max(vec(:,2)));
-        maxInt(p,1) = mz; 
-        maxInt(p,2) = sum(vec(:,2));
+    [maxIntensity,maxMZ,width] = findpeaks(currentScan(:,2),currentScan(:,1),'WidthReference','halfheight','SortStr','none');
+    %preallocate centroided scan
+    maxIntensity = zeros(height(maxIntensity),2);
+    %compute weighted mean of mz and sum intensities
+    for nPeak = 1:numel(width)
+        id = abs(currentScan(:,1)-maxMZ(nPeak)) <= width(nPeak);
+        vec = currentScan(id,:);
+        mass = mean(vec(:,1),Weights = vec(:,2)/max(vec(:,2)));
+        maxIntensity(nPeak,1) = mass; 
+        maxIntensity(nPeak,2) = sum(vec(:,2));
     end
-    CentroidedScans{n,1} = maxInt;
+    centroidedScans{nScan,1} = maxIntensity;
 end

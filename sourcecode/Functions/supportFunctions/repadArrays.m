@@ -1,13 +1,11 @@
 function [arrayOut,vecOut] = repadArrays(arrayIn,vecIn,padSize)
-%% repadArrays
-% adds zero padding to array and vector to match padSize
+%% repadArrays adds zero padding to array and vector to match padSize
 %
 % inputs:   arrayIn: double matrix
 %           vecIn: double column vector
 %           padSize: height of outputs
 % outputs:  arrayOut: double matrix padded with zeros to height of padSize
 %           vecOut: double column vector padded with zeros to height of padSize
-
 
 arguments
     arrayIn (:,:) double
