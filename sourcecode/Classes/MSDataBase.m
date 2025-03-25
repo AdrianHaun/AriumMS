@@ -1,34 +1,32 @@
 classdef MSDataBase
     %MSDATABASE Class for handling local MS Databese search
 
-
     properties
-
-        DataBaseFile    (1,1) string
-        Features        (:,:) double
-        Significant     (:,1) logical
-        HighFoldChange  (:,1) logical
-        FoundInGroup    (:,:) string
-        IonizationNames (5,1) string
+        dataBaseFile            (1,1) string
+        features                (:,:) double
+        significantFeatureArray (:,1) logical
+        highFoldChangeArray     (:,1) logical
+        foundInGroup            (:,:) string
+        ionizationNames         (5,1) string
         %UI elements
-        Window
-        Labels
-        SelectDBFile
-        GenerateDB
-        MS1SearchButton
-        MS2SearchButton
+        window
+        labels
+        selectDataBaseFile
+        generateDataBase
+        ms1SearchButton
+        ms2SearchButton
         mzTolEditfield
-        ErrorUnitDropDown
-        FilterFragmentationEnergyCheckbox
-        FilterIonizationTypeCheckbox
-        FilterSignificantCheckbox
-        FilterFoldChangeCheckbox
-        DatabaseTypeSwitch
-        EICheckBox
-        CICheckBox
-        ESICheckBox
-        APCICheckBox
-        APPICheckBox
+        errorUnitDropDown
+        filterFragmentationEnergyCheckbox
+        filterIonizationTypeCheckbox
+        filterSignificantCheckbox
+        filterFoldChangeCheckbox
+        databaseTypeSwitch
+        electronIonizationCheckBox
+        chemicalIonizationCheckBox
+        electroSprayIonizationCheckBox
+        atmosphericPressureChemicalIonizationCheckBox
+        atmosphericPressurePhotoIonizationCheckBox
     end
 
     methods
@@ -36,50 +34,50 @@ classdef MSDataBase
 
             if nargin > 0
 
-                obj.Features = CallingApp.FeatureData.IdentifierArray;
+                obj.features = CallingApp.FeatureData.IdentifierArray;
                 if size(CallingApp.FeatureData.GroupName,2) < 2
-                    obj.Significant = true(size(CallingApp.FeatureData.AverageIntensities));
-                    obj.HighFoldChange = true(size(CallingApp.FeatureData.AverageIntensities));
+                    obj.significantFeatureArray = true(size(CallingApp.FeatureData.AverageIntensities));
+                    obj.highFoldChangeArray = true(size(CallingApp.FeatureData.AverageIntensities));
                 else
                     IsSignificant = horzcat(CallingApp.FeatureData.SignificantFeature{:});
                     IsSignificant = any(IsSignificant <= CallingApp.maxP,2);
-                    obj.Significant = IsSignificant;
+                    obj.significantFeatureArray = IsSignificant;
                     Fold = max(horzcat(CallingApp.FeatureData.FullFoldChanges{:}),[],2);
-                    obj.HighFoldChange = Fold >= CallingApp.minFold;
+                    obj.highFoldChangeArray = Fold >= CallingApp.minFold;
                 end
-                obj.FoundInGroup = CallingApp.FeatureData.InGroup;
-                obj.IonizationNames = ["EI";"CI";"ESI";"APCI";"APPI"];
-                obj.DataBaseFile = CallingApp.dataBaseFile;
+                obj.foundInGroup = CallingApp.FeatureData.InGroup;
+                obj.ionizationNames = ["EI";"CI";"ESI";"APCI";"APPI"];
+                obj.dataBaseFile = CallingApp.dataBaseFile;
                 %build UIelements
-                obj.Window = uifigure("WindowStyle","normal",...
+                obj.window = uifigure("WindowStyle","normal",...
                     "Name","Database Searcher",...
                     "Position",[200,200,500,250],...
                     "NumberTitle","off");
-                obj.Labels(1) = uilabel(obj.Window,"Text","Local Database:","Position",[20,200,160,40],HorizontalAlignment="left",FontName='Impact',FontSize=22);
-                obj.SelectDBFile = uibutton(obj.Window,"push",...
+                obj.labels(1) = uilabel(obj.window,"Text","Local Database:","Position",[20,200,160,40],HorizontalAlignment="left",FontName='Impact',FontSize=22);
+                obj.selectDataBaseFile = uibutton(obj.window,"push",...
                     "Position",[170,200,155,40],...
                     Text="Select Database File", ...
                     Enable="on");
-                obj.GenerateDB = uibutton(obj.Window,"push",...
+                obj.generateDataBase = uibutton(obj.window,"push",...
                     "Position",[335,200,155,40],...
                     Text="Build Database File", ...
                     Enable="on");
-                obj.MS1SearchButton = uibutton(obj.Window,"push",...
+                obj.ms1SearchButton = uibutton(obj.window,"push",...
                     "Position",[335,90,155,55],...
                     Text="MS1 search", ...
                     Enable="off");
-                obj.MS2SearchButton = uibutton(obj.Window,"push",...
+                obj.ms2SearchButton = uibutton(obj.window,"push",...
                     "Position",[335,25,155,55],...
                     Text="MS2 search", ...
                     Enable="off");
-                obj.mzTolEditfield = uieditfield(obj.Window,"numeric",...
+                obj.mzTolEditfield = uieditfield(obj.window,"numeric",...
                     "Position",[205,145,50,20],...
                     "Limits",[0,Inf],...
                     "LowerLimitInclusive","off",...
                     "Value",0.01,...
                     Tooltip="Lowest mass tolerance to match features to database entry.");
-                obj.Labels(2) = uilabel(obj.Window,"Text","Allowed mass tolerance:","Position",[60,145,140,20],HorizontalAlignment="left");
-                obj.ErrorUnitDropDown = uidropdown(obj.Window, ...
+                obj.labels(2) = uilabel(obj.window,"Text","Allowed mass tolerance:","Position",[60,145,140,20],HorizontalAlignment="left");
+                obj.errorUnitDropDown = uidropdown(obj.window, ...
                     "Items",["ppm","Da"],...
                     ItemsData=["ppm","Da"], ...
                     Value="Da",...
@@ -90,53 +88,53 @@ classdef MSDataBase
                 %     "Position",[60,55,250,20],...
                 %     "Text","Filter fragmentation energy",...
                 %     Tooltip="Only consider database MS2 spectra with matching fragmentation energy.");
-                obj.FilterSignificantCheckbox = uicheckbox(obj.Window,...
+                obj.filterSignificantCheckbox = uicheckbox(obj.window,...
                     "Value",false,...
                     "Position",[60,80,250,20],...
                     "Text","Search only significant features",...
                     Enable="off",...
                     Tooltip="Only consider significant features in database search.");
-                obj.FilterFoldChangeCheckbox = uicheckbox(obj.Window,...
+                obj.filterFoldChangeCheckbox = uicheckbox(obj.window,...
                     "Value",false,...
                     "Position",[60,105,250,20],...
                     "Text","Search only features with high fold change",...
                     Enable="off",...
                     Tooltip="Only consider features with fold change greater than minimum fold change in database search.");
-                obj.DatabaseTypeSwitch = uiswitch(obj.Window,...
+                obj.databaseTypeSwitch = uiswitch(obj.window,...
                     "Items", {'MassBank','HMDB'},"ItemsData",{0,1},"Position",[405,180,155,15],Enable="on");
 
-                obj.FilterIonizationTypeCheckbox = uicheckbox(obj.Window,...
+                obj.filterIonizationTypeCheckbox = uicheckbox(obj.window,...
                     "Value",false,...
                     "Position",[60,55,250,20],...
                     "Text","Ionization Types",...
                     Enable="off",...
                     Tooltip="Only consider database MS2 spectra with matching ionization type.");
 
-                obj.EICheckBox = uicheckbox(obj.Window,...
+                obj.electronIonizationCheckBox = uicheckbox(obj.window,...
                     "Value",true,...
                     "Position",[90,35,50,20],...
                     "Text","EI",...
                     Enable="off",...
                     Tooltip="Includes EI spectra in Database search results.");
-                obj.CICheckBox = uicheckbox(obj.Window,...
+                obj.chemicalIonizationCheckBox = uicheckbox(obj.window,...
                     "Value",true,...
                     "Position",[90,15,50,20],...
                     "Text","CI",...
                     Enable="off",...
                     Tooltip="Includes CI spectra in Database search results.");
-                obj.ESICheckBox = uicheckbox(obj.Window,...
+                obj.electroSprayIonizationCheckBox = uicheckbox(obj.window,...
                     "Value",true,...
                     "Position",[150,35,50,20],...
                     "Text","ESI",...
                     Enable="off",...
                     Tooltip="Includes ESI spectra in Database search results.");
-                obj.APCICheckBox = uicheckbox(obj.Window,...
+                obj.atmosphericPressureChemicalIonizationCheckBox = uicheckbox(obj.window,...
                     "Value",true,...
                     "Position",[150,15,50,20],...
                     "Text","APCI",...
                     Enable="off",...
                     Tooltip="Includes APCI spectra in Database search results.");
-                obj.APPICheckBox = uicheckbox(obj.Window,...
+                obj.atmosphericPressurePhotoIonizationCheckBox = uicheckbox(obj.window,...
                     "Value",true,...
                     "Position",[210,35,50,20],...
                     "Text","APPI",...
@@ -144,123 +142,124 @@ classdef MSDataBase
                     Tooltip="Includes APPI spectra in Database search results.");
 
                 %add function callbacks
-                obj.FilterIonizationTypeCheckbox.ValueChangedFcn = @(src,event) {IonTypeFilterSwitch(obj,src,event)};
+                obj.filterIonizationTypeCheckbox.ValueChangedFcn = @(src,event) {ionTypeFilterSwitch(obj,src,event)};
                 drawnow
-                obj = obj.CheckStatus;
+                obj = obj.checkStatus;
             end
         end
 
-        function obj=testDBfile(obj)          %check for existing SQLlite database
-            [~,~,ext] = fileparts(obj.DataBaseFile);
-            if ~isfile(obj.DataBaseFile) || ~strcmp(ext,".db")
-                obj = obj.GenerateDatabase;
+        function obj = testDBfile(obj)          %check for existing SQLlite database
+            [~,~,ext] = fileparts(obj.dataBaseFile);
+            if ~isfile(obj.dataBaseFile) || ~strcmp(ext,".db")
+                obj = obj.generateDatabase;
             end
         end
 
-        function obj = IonTypeFilterSwitch(obj,~,event)
+        function obj = ionTypeFilterSwitch(obj,~,event)
 
             if event.Value == true
                 %enable sub checkboxes
-                obj.EICheckBox.Enable = "on";
-                obj.CICheckBox.Enable = "on";
-                obj.ESICheckBox.Enable = "on";
-                obj.APCICheckBox.Enable = "on";
-                obj.APPICheckBox.Enable = "on";
+                obj.electronIonizationCheckBox.Enable = "on";
+                obj.chemicalIonizationCheckBox.Enable = "on";
+                obj.electroSprayIonizationCheckBox.Enable = "on";
+                obj.atmosphericPressureChemicalIonizationCheckBox.Enable = "on";
+                obj.atmosphericPressurePhotoIonizationCheckBox.Enable = "on";
             else
                 %disable sub checkboxes
-                obj.EICheckBox.Enable = "off";
-                obj.CICheckBox.Enable = "off";
-                obj.ESICheckBox.Enable = "off";
-                obj.APCICheckBox.Enable = "off";
-                obj.APPICheckBox.Enable = "off";
+                obj.electronIonizationCheckBox.Enable = "off";
+                obj.chemicalIonizationCheckBox.Enable = "off";
+                obj.electroSprayIonizationCheckBox.Enable = "off";
+                obj.atmosphericPressureChemicalIonizationCheckBox.Enable = "off";
+                obj.atmosphericPressurePhotoIonizationCheckBox.Enable = "off";
             end
         end
 
-        function obj = SelectDB(obj,~,~)
+        function obj = selectDB(obj,~,~)
             [file,path] = uigetfile('*.db','Select database file');
-            figure(obj.Window);
+            figure(obj.window);
             %check for user cancel
             if file == 0
-                uialert(obj.Window,"Task aborted by user","No database selected")
-                obj = obj.CheckStatus;
+                uialert(obj.window,"Task aborted by user","No database selected")
+                obj = obj.checkStatus;
             else
-                obj.DataBaseFile=fullfile(path,file);
+                obj.dataBaseFile=fullfile(path,file);
                 obj = obj.testDBfile;
-                obj = obj.CheckStatus;
+                obj = obj.checkStatus;
             end
         end
-        function obj = GenerateDatabase(obj,~,~)
-            if obj.DataBaseFile == ""
+        function obj = generateDatabase(obj,~,~)
+            if obj.dataBaseFile == ""
                 [file,path] = uiputfile('*.db','Select Save Location and Filename for database file',"DataBase.db");
-                figure(obj.Window);
+                figure(obj.window);
                 %check for user cancel
                 if file == 0
-                    uialert(obj.Window,"Task aborted by user","No database file created","Icon","warning")
+                    uialert(obj.window,"Task aborted by user","No database file created","Icon","warning")
                     return
                 end
-                obj.DataBaseFile=fullfile(path,file);
+                obj.dataBaseFile = fullfile(path,file);
             else
-                CurrentDB = obj.DataBaseFile;
-                selection = uiconfirm(obj.Window,"Overwrite "+CurrentDB+" ?","Confirm","Options",["Overwrite","Save as new","Cancel"],"DefaultOption",2,"CancelOption",3);
+                currentDB = obj.dataBaseFile;
+                selection = uiconfirm(obj.window,"Overwrite "+currentDB+" ?","Confirm","Options",["Overwrite","Save as new","Cancel"],"DefaultOption",2,"CancelOption",3);
 
                 switch selection
                     case "Overwrite"
                         %delete file
-                        delete(CurrentDB)
+                        delete(currentDB)
                     case "Save as new"
                         [file,path] = uiputfile('*.db','Select Save Location and Filename for database file',"DataBase.db");
-                        figure(obj.Window);
-                        obj.DataBaseFile=fullfile(path,file);
+                        figure(obj.window);
+                        obj.dataBaseFile=fullfile(path,file);
                     case "Cancel"
-                        uialert(obj.Window,"Task aborted by user","No database file created","Icon","warning")
+                        uialert(obj.window,"Task aborted by user","No database file created","Icon","warning")
                         return
                 end
 
             end
-            DBType = obj.DatabaseTypeSwitch.Value;
+            DBType = obj.databaseTypeSwitch.Value;
 
             switch DBType
                 case 0
-                    obj.GenerateMassBankDatabase;
+                    obj.generateMassBankDatabase;
                 case 1
-                    obj.GenerateHMDBDatabase;
+                    obj.generateHMDBDatabase;
             end
 
         end
 
-        function DecodedMS2Data = DecodeString(obj,EncodedStrings)
-            DecodedMS2Data=cell(size(EncodedStrings,1),1);
-            parfor n=1:size(EncodedStrings,1)
-                Decoded = matlab.net.base64decode(EncodedStrings(n));
+        function decodedMS2Data = decodeString(obj,encodedStrings)
+            decodedMS2Data = cell(size(encodedStrings,1),1);
+            parfor iString = 1:size(encodedStrings,1)
+                Decoded = matlab.net.base64decode(encodedStrings(iString));
                 Decoded = typecast(Decoded,'double');
-                DecodedMS2Data{n} = reshape(Decoded,[],2);
+                decodedMS2Data{iString} = reshape(Decoded,[],2);
             end
         end
 
-        function obj = GenerateMassBankDatabase(obj)
+        function obj = generateMassBankDatabase(obj)
             %clear database if one exists
-            if isfile(obj.DataBaseFile)
-                delete(obj.DataBaseFile)
+            if isfile(obj.dataBaseFile)
+                delete(obj.dataBaseFile)
             end
 
-            MassBankRoot = uigetdir(pwd,'Open MassBank data main folder');
-            figure(obj.Window);
-            if isempty(MassBankRoot)
-                uialert(obj.Window,"Task aborted by user","No database file created","Icon","warning")
+            massBankRoot = uigetdir(pwd,'Open MassBank data main folder');
+            figure(obj.window);
+            if isempty(massBankRoot)
+                uialert(obj.window,"Task aborted by user","No database file created","Icon","warning")
                 return
             end
-            d =  uiprogressdlg(obj.Window,'Title','Building Database',...
+            d =  uiprogressdlg(obj.window,'Title','Building Database',...
                 'Indeterminate','on');
             drawnow
 
             % Use the 'dir' function to list all files and folders in the root directory
-            fileList = dir(fullfile(MassBankRoot, '**', '*.txt'));
-            % Create an empty cell array to store your data
+            fileList = dir(fullfile(massBankRoot, '**', '*.txt'));
+
+            % Create an empty cell array to store data
             database = struct('ACCESSION', {}, 'NAME', {}, 'FORMULA', {}, ...
                 'EXACT_MASS', {}, 'INSTRUMENT_TYPE', {},  'IONIZATION', {}, 'FRAGMENTATION_ENERGY', {},'SPECTRUM', {});
             % Loop through the fileList and read the text files
-            parfor i = 1:numel(fileList)
-                filename = strcat(fileList(i).folder,'\',fileList(i).name);
+            parfor iFile = 1:numel(fileList)
+                filename = strcat(fileList(iFile).folder,'\',fileList(iFile).name);
                 % Read the file into a cell array
                 fileLines = importdata(filename, '\n');
                 % Initialize variables to store information
@@ -274,8 +273,8 @@ classdef MSDataBase
                 peaks = [];
 
                 % Loop through each line in the file
-                for j = 1:numel(fileLines)
-                    line = fileLines{j};
+                for jLine = 1:numel(fileLines)
+                    line = fileLines{jLine};
                     chNameCaptured = false;
                     % Extract the information you need from each line
                     if startsWith(line, 'ACCESSION:')
@@ -296,10 +295,10 @@ classdef MSDataBase
                     elseif startsWith(line, 'PK$PEAK:')
                         % Extract and parse peak values from subsequent lines
                         peaks = [];
-                        t = j;
-                        while t < numel(fileLines)
-                            t = t + 1;
-                            peakLine = strtrim(fileLines{t});
+                        kLine = jLine;
+                        while kLine < numel(fileLines)
+                            kLine = kLine + 1;
+                            peakLine = strtrim(fileLines{kLine});
                             if isempty(peakLine)
                                 break;
                             end
@@ -324,9 +323,9 @@ classdef MSDataBase
                     peaks = [0 0];
                 end
                 %decode peaks to string
-                peaks=reshape(peaks,1,[]);
-                peaks=typecast(peaks,'uint8');
-                peaks=matlab.net.base64encode(peaks);
+                peaks = reshape(peaks,1,[]);
+                peaks = typecast(peaks,'uint8');
+                peaks = matlab.net.base64encode(peaks);
                 % Add the extracted data to the database structure
                 entry = struct('ACCESSION', accession, 'NAME', name, ...
                     'FORMULA', formula, 'EXACT_MASS', exact_mass, ...
@@ -335,35 +334,35 @@ classdef MSDataBase
 
                 database = [database, entry];
             end
-            database=struct2table(database);
-            DataBaseConnection = sqlite(obj.DataBaseFile,"create");
-            sqlwrite(DataBaseConnection,"SpectralData",database);
-            close(DataBaseConnection)
+            database = struct2table(database);
+            dataBaseConnection = sqlite(obj.dataBaseFile,"create");
+            sqlwrite(dataBaseConnection,"SpectralData",database);
+            close(dataBaseConnection)
             close(d)
-            obj = obj.CheckStatus;
-            uialert(obj.Window,"Local database generation successfull","Database file created","Icon","success")
+            obj = obj.checkStatus;
+            uialert(obj.window,"Local database generation successfull","Database file created","Icon","success")
         end
 
-        function obj = GenerateHMDBDatabase(obj)
-            [file,path]=uigetfile('*.xml',"Select HMDB metabolite file (.xml)","MultiSelect","off");
+        function obj = generateHMDBDatabase(obj)
+            [file,path] = uigetfile('*.xml',"Select HMDB metabolite file (.xml)","MultiSelect","off");
 
-            MetaboliteFile = fullfile(path,file);
-            if isempty(MetaboliteFile)
-                uialert(obj.Window,"Task aborted by user","No database file created","Icon","warning")
+            metaboliteFile = fullfile(path,file);
+            if isempty(metaboliteFile)
+                uialert(obj.window,"Task aborted by user","No database file created","Icon","warning")
                 return
             end
 
             path = uigetdir(path,"Select HMDB MS/MS Spectral File Folder");
             if isempty(path)
-                uialert(obj.Window,"Task aborted by user","No database file created","Icon","warning")
+                uialert(obj.window,"Task aborted by user","No database file created","Icon","warning")
                 return
             end
 
-            if exist(obj.DataBaseFile, 'file') == 2
-                delete(obj.DataBaseFile);
+            if exist(obj.dataBaseFile, 'file') == 2
+                delete(obj.dataBaseFile);
             end
-            d =  uiprogressdlg(obj.Window,'Title','Building Database',...
-                'Message',"Loading " + MetaboliteFile,...
+            d =  uiprogressdlg(obj.window,'Title','Building Database',...
+                'Message',"Loading " + metaboliteFile,...
                 'Indeterminate','on');
             drawnow
 
@@ -372,148 +371,149 @@ classdef MSDataBase
                 'IONIZATION', {},'FRAGMENTATION_ENERGY', {}, 'SPECTRUM', {});
 
             %% read Metabolite file
-            doc = xmlread(MetaboliteFile);
+            doc = xmlread(metaboliteFile);
 
-            MetaboliteList = doc.getElementsByTagName('metabolite');
-            numMetabolites = MetaboliteList.getLength;
+            metaboliteList = doc.getElementsByTagName('metabolite');
+            nMetabolites = metaboliteList.getLength;
 
 
             %% create file and add first entry
-            n=0;
-            x = n+1;
-            d = uiprogressdlg(obj.Window,'Title','Building Database',...
-                'Message',"Metabolite " + x + " of " +numMetabolites);
+            iMetabolite = 0;
+            currentMetaboliteNumber = iMetabolite+1;
+            d = uiprogressdlg(obj.window,'Title','Building Database',...
+                'Message',"Metabolite " + currentMetaboliteNumber + " of " +nMetabolites);
             d.Value = 0;
-            Metabolite = MetaboliteList.item(n);
+            metabolite = metaboliteList.item(iMetabolite);
             %HMDB identifier
-            Accession = Metabolite.getElementsByTagName('accession');
-            Accession = string(Accession.item(0).getTextContent);
+            accession = metabolite.getElementsByTagName('accession');
+            accession = string(accession.item(0).getTextContent);
 
             %Compound Name
-            Name = Metabolite.getElementsByTagName('name');
-            Name = string(Name.item(0).getTextContent);
+            name = metabolite.getElementsByTagName('name');
+            name = string(name.item(0).getTextContent);
 
             %Compound Mass
-            ExactMass = Metabolite.getElementsByTagName('monisotopic_molecular_weight');
-            ExactMass = str2double(ExactMass.item(0).getTextContent);
+            exactMass = metabolite.getElementsByTagName('monisotopic_molecular_weight');
+            exactMass = str2double(exactMass.item(0).getTextContent);
 
             %Compound Formula
-            propertyList = Metabolite.getElementsByTagName('property');
+            propertyList = metabolite.getElementsByTagName('property');
             found = false;
-            P = 0;
-            Formula = strings(1);
-            while found == false & P <= propertyList.getLength-1
-                property = propertyList.item(P);
+            iProperty = 0;
+            formula = strings(1);
+            while found == false & iProperty <= propertyList.getLength-1
+                property = propertyList.item(iProperty);
                 type = property.getElementsByTagName('kind');
                 type = string(type.item(0).getTextContent);
                 if strcmp(type,"formula")
                     prop = property.getElementsByTagName('value');
-                    Formula = string(prop.item(0).getTextContent);
+                    formula = string(prop.item(0).getTextContent);
                     found = true;
                 end
-                P = P+1;
+                iProperty = iProperty+1;
             end
             % identify correct spectra files
-            fstruct = dir(path + "\"+Accession+"*");
-            numSpectra = numel(fstruct);
+            fstruct = dir(path + "\"+accession+"*");
+            nSpectra = numel(fstruct);
             %load spectra files
-            if numSpectra > 0
-                parfor S = 1:numSpectra
+            if nSpectra > 0
+                parfor iSpectrum = 1:nSpectra
 
-                    SpectraFile = fullfile(path, fstruct(S).name);
-                    [instrumenttype,ionization_mode,collisionenergy,encodedSpectrum] = readHMDBSpectraFile(SpectraFile);
-                    entry = struct('ACCESSION', Accession, 'NAME', Name, ...
-                        'FORMULA', Formula, 'EXACT_MASS', ExactMass, ...
-                        'INSTRUMENT_TYPE', instrumenttype, 'IONIZATION', ionization_mode, ...
-                        'FRAGMENTATION_ENERGY', collisionenergy, 'SPECTRUM', encodedSpectrum);
+                    spectraFile = fullfile(path, fstruct(iSpectrum).name);
+                    [instrumentType,ionizationMode,collisionEnergy,encodedSpectrum] = readHMDBSpectraFile(spectraFile);
+                    entry = struct('ACCESSION', accession, 'NAME', name, ...
+                        'FORMULA', formula, 'EXACT_MASS', exactMass, ...
+                        'INSTRUMENT_TYPE', instrumentType, 'IONIZATION', ionizationMode, ...
+                        'FRAGMENTATION_ENERGY', collisionEnergy, 'SPECTRUM', encodedSpectrum);
                     database = [database, entry];
                 end
             end
-            database=struct2table(database);
-            DataBaseConnection = sqlite(obj.DataBaseFile,"create");
+            database = struct2table(database);
+            DataBaseConnection = sqlite(obj.dataBaseFile,"create");
             sqlwrite(DataBaseConnection,"SpectralData",database);
             database = [];
-            d.Value = 1/numMetabolites;
+            d.Value = 1/nMetabolites;
             %% add remaining entries
-            for n=1:numMetabolites-1
-                x = n+1;
-                d.Message = "Metabolite " + x + " of " +numMetabolites;
-                Metabolite = MetaboliteList.item(n);
+            for iMetabolite = 1:nMetabolites-1
+                currentMetaboliteIndex = iMetabolite+1;
+                d.Message = "Metabolite " + currentMetaboliteIndex + " of " +nMetabolites;
+                metabolite = metaboliteList.item(iMetabolite);
                 %HMDB identifier
-                Accession = Metabolite.getElementsByTagName('accession');
-                Accession = string(Accession.item(0).getTextContent);
+                accession = metabolite.getElementsByTagName('accession');
+                accession = string(accession.item(0).getTextContent);
 
                 %Compound Name
-                Name = Metabolite.getElementsByTagName('name');
-                Name = string(Name.item(0).getTextContent);
+                name = metabolite.getElementsByTagName('name');
+                name = string(name.item(0).getTextContent);
 
                 %Compound Mass
-                ExactMass = Metabolite.getElementsByTagName('monisotopic_molecular_weight');
-                ExactMass = str2double(ExactMass.item(0).getTextContent);
+                exactMass = metabolite.getElementsByTagName('monisotopic_molecular_weight');
+                exactMass = str2double(exactMass.item(0).getTextContent);
 
                 %Compound Formula
-                propertyList = Metabolite.getElementsByTagName('property');
+                propertyList = metabolite.getElementsByTagName('property');
                 found = false;
-                P = 0;
-                Formula = strings(1);
-                while found == false & P <= propertyList.getLength-1
-                    property = propertyList.item(P);
+                iProperty = 0;
+                formula = strings(1);
+                while found == false & iProperty <= propertyList.getLength-1
+                    property = propertyList.item(iProperty);
                     type = property.getElementsByTagName('kind');
                     type = string(type.item(0).getTextContent);
                     if strcmp(type,"formula")
                         prop = property.getElementsByTagName('value');
-                        Formula = string(prop.item(0).getTextContent);
+                        formula = string(prop.item(0).getTextContent);
                         found = true;
                     end
-                    P = P+1;
+                    iProperty = iProperty+1;
                 end
                 % identify correct spectra files
-                fstruct = dir(path + "\"+Accession+"*");
+                fstruct = dir(path + "\"+accession+"*");
                 numSpectra = numel(fstruct);
                 %load spectra files
                 if numSpectra > 0
-                    parfor S = 1:numSpectra
-                        SpectraFile = fullfile(path, fstruct(S).name);
-                        [instrumenttype,ionization_mode,collisionenergy,encodedSpectrum] = readHMDBSpectraFile(SpectraFile);
-                        entry = struct('ACCESSION', Accession, 'NAME', Name, ...
-                            'FORMULA', Formula, 'EXACT_MASS', ExactMass, ...
-                            'INSTRUMENT_TYPE', instrumenttype, 'IONIZATION', ionization_mode, ...
-                            'FRAGMENTATION_ENERGY', collisionenergy, 'SPECTRUM', string(encodedSpectrum));
+                    parfor iSpectrum = 1:numSpectra
+                        spectraFile = fullfile(path, fstruct(iSpectrum).name);
+                        [instrumentType,ionizationMode,collisionEnergy,encodedSpectrum] = readHMDBSpectraFile(spectraFile);
+                        entry = struct('ACCESSION', accession, 'NAME', name, ...
+                            'FORMULA', formula, 'EXACT_MASS', exactMass, ...
+                            'INSTRUMENT_TYPE', instrumentType, 'IONIZATION', ionizationMode, ...
+                            'FRAGMENTATION_ENERGY', collisionEnergy, 'SPECTRUM', string(encodedSpectrum));
                         database = [database, entry];
                     end
-                    database=struct2table(database);
+                    database = struct2table(database);
                     sqlwrite(DataBaseConnection,"SpectralData",database);
                     database = [];
-                    d.Value = (n+1)/numMetabolites;
+                    d.Value = (iMetabolite+1)/nMetabolites;
                     drawnow
                 end
             end
 
             close(DataBaseConnection)
             close(d)
-            obj = obj.CheckStatus;
-            uialert(obj.Window,"Local database generation successfull","Database file created","Icon","success")
+            obj = obj.checkStatus;
+            uialert(obj.window,"Local database generation successfull","Database file created","Icon","success")
 
         end
-        function out = DataBaseMS1Query(obj)
-            QueryMasses = obj.Features(:,1);
-            Modifier = true(size(QueryMasses));
-            if obj.FilterSignificantCheckbox.Value == true
-                Modifier = obj.Significant;
+
+        function out = dataBaseMS1Query(obj)
+            queryMasses = obj.features(:,1);
+            modifier = true(size(queryMasses));
+            if obj.filterSignificantCheckbox.Value == true
+                modifier = obj.significantFeatureArray;
             end
-            if obj.FilterFoldChangeCheckbox.Value == true
-                Modifier = [Modifier,obj.HighFoldChange];
+            if obj.filterFoldChangeCheckbox.Value == true
+                modifier = [modifier,obj.highFoldChangeArray];
             end
-            Modifier = all(Modifier,2);
-            QueryMasses(~Modifier)=[];
-            QueryMasses = unique(QueryMasses);
-            switch obj.ErrorUnitDropDown.Value
+            modifier = all(modifier,2);
+            queryMasses(~modifier)=[];
+            queryMasses = unique(queryMasses);
+            switch obj.errorUnitDropDown.Value
                 case "Da"
-                    MZmin = QueryMasses - obj.mzTolEditfield.Value;
-                    MZmax = QueryMasses + obj.mzTolEditfield.Value;
+                    mzMin = queryMasses - obj.mzTolEditfield.Value;
+                    mzMax = queryMasses + obj.mzTolEditfield.Value;
                 case "ppm"
-                    MZmin = QueryMasses - (QueryMasses*obj.mzTolEditfield.Value*10^-6);
-                    MZmax = QueryMasses + (QueryMasses*obj.mzTolEditfield.Value*10^-6);
+                    mzMin = queryMasses - (queryMasses*obj.mzTolEditfield.Value*10^-6);
+                    mzMax = queryMasses + (queryMasses*obj.mzTolEditfield.Value*10^-6);
             end
 
             query = ['SELECT NAME, ' ...
@@ -521,55 +521,55 @@ classdef MSDataBase
                 '	EXACT_MASS ' ...
                 'FROM SpectralData ' ...
                 'WHERE EXACT_MASS <= '];
-            query = append(query,convertStringsToChars(MZmax + " AND EXACT_MASS >= " + MZmin));
-            databasefile = obj.DataBaseFile;
-            QueryResults = cell(size(query));
-            parfor n=1:length(QueryMasses)
+            query = append(query,convertStringsToChars(mzMax + " AND EXACT_MASS >= " + mzMin));
+            databasefile = obj.dataBaseFile;
+            queryResults = cell(size(query));
+            parfor iQuery = 1:length(queryMasses)
                 local_connection = sqlite(databasefile);
-                result = fetch(local_connection, query{n});
+                result = fetch(local_connection, query{iQuery});
                 %calculate difference in ppm
                 close(local_connection);
                 if ~isempty(result)
                     result = unique(result,"rows");
-                    diff = ((abs(QueryMasses(n)-result.EXACT_MASS))./QueryMasses(n))*10^6;
+                    diff = ((abs(queryMasses(iQuery)-result.EXACT_MASS))./queryMasses(iQuery))*10^6;
                     result.DELTA_ppm = round(diff,2);
                     result = sortrows(result,"DELTA_ppm","ascend");
-                    QueryResults{n}=result;
+                    queryResults{iQuery} = result;
                 end
             end
             %sort data to features
-            out = cell(length(obj.Features(:,1)),1);
-            for n=1:size(QueryResults,1)
-                idx = obj.Features(:,1) == QueryMasses(n);
-                out(idx) = QueryResults(n);
+            out = cell(length(obj.features(:,1)),1);
+            for iQuery=1:size(queryResults,1)
+                idx = obj.features(:,1) == queryMasses(iQuery);
+                out(idx) = queryResults(iQuery);
             end
-            out(~Modifier) = {};
+            out(~modifier) = {};
         end
 
-        function [ResultStorage,DBSpectra,SpectraIndexStorage] = DataBaseMS2Query(obj,MeasuredSpectra)
+        function [resultStorage,dataBaseSpectra,spectraIndexStorage] = dataBaseMS2Query(obj,measuredSpectra)
             %Query time
-            databasefile = obj.DataBaseFile;
-            QueryMasses = obj.Features(:,1);
-            mzTol = obj.mzTolEditfield.Value;
-            ErrorUnit = obj.ErrorUnitDropDown.Value;
-            Modifier = true(size(QueryMasses));
-            if obj.FilterSignificantCheckbox.Value == true
-                Modifier = obj.Significant;
+            databasefile = obj.dataBaseFile;
+            queryMasses = obj.features(:,1);
+            mzTolerance = obj.mzTolEditfield.Value;
+            errorUnit = obj.errorUnitDropDown.Value;
+            modifier = true(size(queryMasses));
+            if obj.filterSignificantCheckbox.Value == true
+                modifier = obj.significantFeatureArray;
             end
-            if obj.FilterFoldChangeCheckbox.Value == true
-                Modifier = [Modifier,obj.HighFoldChange];
+            if obj.filterFoldChangeCheckbox.Value == true
+                modifier = [modifier,obj.highFoldChangeArray];
             end
-            Modifier = all(Modifier,2);
-            NoSpectra = cellfun(@isempty,MeasuredSpectra);
-            Modifier(NoSpectra) = false;
-            AllowedIonization = obj.IonizationNames([obj.EICheckBox.Value;obj.CICheckBox.Value;obj.ESICheckBox.Value;obj.APCICheckBox.Value;obj.APPICheckBox.Value]);
-            switch ErrorUnit
+            modifier = all(modifier,2);
+            noSpectra = cellfun(@isempty,measuredSpectra);
+            modifier(noSpectra) = false;
+            allowedIonization = obj.ionizationNames([obj.electronIonizationCheckBox.Value;obj.chemicalIonizationCheckBox.Value;obj.electroSprayIonizationCheckBox.Value;obj.atmosphericPressureChemicalIonizationCheckBox.Value;obj.atmosphericPressurePhotoIonizationCheckBox.Value]);
+            switch errorUnit
                 case "Da"
-                    MZmin = QueryMasses - mzTol;
-                    MZmax = QueryMasses + mzTol;
+                    mzMin = queryMasses - mzTolerance;
+                    mzMax = queryMasses + mzTolerance;
                 case "ppm"
-                    MZmin = QueryMasses - (QueryMasses*mzTol*10^-6);
-                    MZmax = QueryMasses + (QueryMasses*mzTol*10^-6);
+                    mzMin = queryMasses - (queryMasses*mzTolerance*10^-6);
+                    mzMax = queryMasses + (queryMasses*mzTolerance*10^-6);
             end
             query = ['SELECT NAME, ' ...
                 '	FORMULA, ' ...
@@ -580,111 +580,111 @@ classdef MSDataBase
                 '	SPECTRUM ' ...
                 'FROM SpectralData '...
                 'WHERE EXACT_MASS <= '];
-            query = append(query,convertStringsToChars(MZmax + " AND EXACT_MASS >= " + MZmin));
+            query = append(query,convertStringsToChars(mzMax + " AND EXACT_MASS >= " + mzMin));
             %databasefile = obj.DataBaseFile;
-            QueryResults = cell(size(query));
+            queryResults = cell(size(query));
 
-            parfor n=1:length(QueryMasses)
+            parfor iQuery = 1:length(queryMasses)
                 local_connection = sqlite(databasefile);
-                if Modifier(n) == true
-                    result = fetch(local_connection, query{n});
+                if modifier(iQuery) == true
+                    result = fetch(local_connection, query{iQuery});
                 else
                     result = [];
                 end
                 close(local_connection);
                 if ~isempty(result)
-                    idx = contains(result.INSTRUMENT_TYPE,AllowedIonization);
+                    idx = contains(result.INSTRUMENT_TYPE,allowedIonization);
                     result(~idx,:) = [];
-                    diff = ((abs(QueryMasses(n)-result.EXACT_MASS))./QueryMasses(n))*10^6;
+                    diff = ((abs(queryMasses(iQuery)-result.EXACT_MASS))./queryMasses(iQuery))*10^6;
                     result.DELTA_ppm = round(diff,2);
-                    QueryResults{n}=result;
+                    queryResults{iQuery} = result;
                 end
             end
 
             %%
-            DBSpectra = cell(size(MeasuredSpectra,1),1);
+            dataBaseSpectra = cell(size(measuredSpectra,1),1);
 
             % prepare Database Spectra
-            parfor n=1:length(QueryResults)
-                if isempty(QueryResults{n})
+            parfor iQuery = 1:length(queryResults)
+                if isempty(queryResults{iQuery})
                     continue
                 else
-                    SpectraStrings = QueryResults{n}.SPECTRUM;
-                    Spectra = DecodeStrings(SpectraStrings);
+                    spectraStrings = queryResults{iQuery}.SPECTRUM;
+                    spectra = decodeSpectra(spectraStrings);
                     %rescale intensities
-                    Spectra = cellfun(@(x) [x(:,1),x(:,2)./max(x(:,2))],Spectra,'UniformOutput',false);
+                    spectra = cellfun(@(x) [x(:,1),x(:,2)./max(x(:,2))],spectra,'UniformOutput',false);
                     %remove intensities < 5%
-                    Spectra = cellfun(@(x) x(x(:,2)>=0.05,:),Spectra,'UniformOutput',false);
-                    Spectra = mergeMatricesWithTolerance(Spectra,0.1,"Da");
+                    spectra = cellfun(@(x) x(x(:,2)>=0.05,:),spectra,'UniformOutput',false);
+                    spectra = mergeMatricesWithTolerance(spectra,0.1,"Da");
 
-                    [~,id] = sort(Spectra(:,1),'ascend');
-                    DBSpectra{n} = Spectra(id,:);
+                    [~,id] = sort(spectra(:,1),'ascend');
+                    dataBaseSpectra{iQuery} = spectra(id,:);
                 end
             end
             %%
             %calculate Scores for each Group
-            Scores = cell(1,size(MeasuredSpectra,2));
-            parfor n = 1:size(MeasuredSpectra,2)
-                Spectra = [MeasuredSpectra(:,n), DBSpectra];
-                Scores{1,n} = OuterFeatScores(Spectra,0.015,"Da");
+            scores = cell(1,size(measuredSpectra,2));
+            parfor iQuery = 1:size(measuredSpectra,2)
+                spectra = [measuredSpectra(:,iQuery), dataBaseSpectra];
+                scores{1,iQuery} = OuterFeatScores(spectra,0.015,"Da");
             end
-            Scores = horzcat(Scores{:});
+            scores = horzcat(scores{:});
             %% get indices of high score spectra
-            ResultStorage = cell(size(QueryMasses));
-            SpectraIndexStorage = cell(size(QueryMasses));
-            parfor n = 1:length(QueryResults)
+            resultStorage = cell(size(queryMasses));
+            spectraIndexStorage = cell(size(queryMasses));
+            parfor iQuery = 1:length(queryResults)
                 %merge scores
-                SC = vertcat(Scores{n,:});
-                if isempty(SC) || isempty(QueryResults{n})
+                SC = vertcat(scores{iQuery,:});
+                if isempty(SC) || isempty(queryResults{iQuery})
                     continue
                 else
                     %get Entry index and Score
                     idx = SC(:,1) >= 800;
-                    Val = SC(idx,:);
-                    if isempty(Val)
+                    val = SC(idx,:);
+                    if isempty(val)
                         continue
                     end
                     %filter duplicates and sort
-                    Val = unique(Val,"rows");
-                    [~,idx] = sort(Val(:,1),'ascend');
-                    Val = Val(idx,:);
+                    val = unique(val,"rows");
+                    [~,idx] = sort(val(:,1),'ascend');
+                    val = val(idx,:);
                     %sort Query Results
-                    Result = QueryResults{n,1}(Val(:,2),:);
-                    Result.SPECTRUM = [];
-                    Result.ID_MATCH_SCORE = Val(:,1);
-                    [Result,id] = unique(Result,"rows");
-                    Val = Val(id,:);
-                    if ~isempty(Val)
-                        [~,id] = sort(Result.ID_MATCH_SCORE,'descend');
-                        ResultStorage{n,1} = Result(id,:);
-                        SpectraIndexStorage{n,1} = Val(id,:);
+                    result = queryResults{iQuery,1}(val(:,2),:);
+                    result.SPECTRUM = [];
+                    result.ID_MATCH_SCORE = val(:,1);
+                    [result,id] = unique(result,"rows");
+                    val = val(id,:);
+                    if ~isempty(val)
+                        [~,id] = sort(result.ID_MATCH_SCORE,'descend');
+                        resultStorage{iQuery,1} = result(id,:);
+                        spectraIndexStorage{iQuery,1} = val(id,:);
                     end
                 end
             end
 
         end
 
-        function obj = CheckStatus(obj)
-            if strcmp(obj.DataBaseFile,"")
-                obj.MS1SearchButton.Enable = "off";
-                obj.MS2SearchButton.Enable = "off";
+        function obj = checkStatus(obj)
+            if strcmp(obj.dataBaseFile,"")
+                obj.ms1SearchButton.Enable = "off";
+                obj.ms2SearchButton.Enable = "off";
                 obj.mzTolEditfield.Enable = "off";
-                obj.ErrorUnitDropDown.Enable = "off";
+                obj.errorUnitDropDown.Enable = "off";
                 % obj.FilterFragmentationTypeCheckbox.Enable = "off";
                 %obj.FilterFragmentationEnergyCheckbox.Enable = "off";
-                obj.FilterSignificantCheckbox.Enable = "off";
-                obj.FilterFoldChangeCheckbox.Enable = "off";
-                obj.FilterIonizationTypeCheckbox.Enable = "off";
+                obj.filterSignificantCheckbox.Enable = "off";
+                obj.filterFoldChangeCheckbox.Enable = "off";
+                obj.filterIonizationTypeCheckbox.Enable = "off";
             else
-                obj.MS1SearchButton.Enable = "on";
-                obj.MS2SearchButton.Enable = "on";
+                obj.ms1SearchButton.Enable = "on";
+                obj.ms2SearchButton.Enable = "on";
                 obj.mzTolEditfield.Enable = "on";
-                obj.ErrorUnitDropDown.Enable = "on";
+                obj.errorUnitDropDown.Enable = "on";
                 % obj.FilterFragmentationTypeCheckbox.Enable = "on";
                 %obj.FilterFragmentationEnergyCheckbox.Enable = "on";
-                obj.FilterSignificantCheckbox.Enable = "on";
-                obj.FilterFoldChangeCheckbox.Enable = "on";
-                obj.FilterIonizationTypeCheckbox.Enable = "on";
+                obj.filterSignificantCheckbox.Enable = "on";
+                obj.filterFoldChangeCheckbox.Enable = "on";
+                obj.filterIonizationTypeCheckbox.Enable = "on";
             end
 
             drawnow
