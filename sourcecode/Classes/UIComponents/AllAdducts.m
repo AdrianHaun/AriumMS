@@ -286,21 +286,21 @@ classdef AllAdducts < AddNLoss
             obj.AllDoubles.Position = [15 255 35 22];
 
             %load previous pos data
-            val = num2cell(CallingData.AddSelectedPos(27:30));
+            val = num2cell(CallingData.adductSelectedPos(27:30));
             [obj.TripleArray(1:4).Value] = deal(val{:});
-            val = num2cell(CallingData.AddSelectedPos(19:26));
+            val = num2cell(CallingData.adductSelectedPos(19:26));
             [obj.DoubleArray(1:8).Value] = deal(val{:});
-            val=num2cell(CallingData.AddSelectedPos(13:18));
+            val=num2cell(CallingData.adductSelectedPos(13:18));
             [obj.DimerArray(1:6).Value] = deal(val{:});
-            val=num2cell(CallingData.AddSelectedPos(1:12));
+            val=num2cell(CallingData.adductSelectedPos(1:12));
             [obj.SingleArray(1:12).Value] = deal(val{:});
 
             %load previous neg data
-            obj.TripleArray(5).Value = CallingData.AddSelectedNeg(16);
-            obj.DoubleArray(9).Value = CallingData.AddSelectedNeg(15);
-            val=num2cell(CallingData.AddSelectedNeg(11:14));
+            obj.TripleArray(5).Value = CallingData.adductSelectedNeg(16);
+            obj.DoubleArray(9).Value = CallingData.adductSelectedNeg(15);
+            val=num2cell(CallingData.adductSelectedNeg(11:14));
             [obj.DimerArray(7:10).Value] = deal(val{:});
-            val=num2cell(CallingData.AddSelectedNeg(1:10));
+            val=num2cell(CallingData.adductSelectedNeg(1:10));
             [obj.SingleArray(13:22).Value] = deal(val{:});
         end
 

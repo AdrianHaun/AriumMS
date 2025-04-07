@@ -2,6 +2,7 @@ classdef EvaluationOptions
     %% Object for storing Evaluation panel UI elements
 
     properties
+        %UI Elements
         Container                       matlab.ui.container.Panel
         DataVisualizationSubPanel       matlab.ui.container.Panel
         MultivariateAnalysisSubPanel    matlab.ui.container.Panel
@@ -24,6 +25,13 @@ classdef EvaluationOptions
         ExportButton                    matlab.ui.control.Button
         PlotSpace                       matlab.graphics.layout.TiledChartLayout
         PlotTiles                       matlab.graphics.axis.Axes
+
+        % Processing Data
+        transformationType      (1,1) string {mustBeMember(transformationType,["none","logn","log10","power","cube","reciprocal"])} = "none"
+        dataScalingType         (1,1) string {mustBeMember(dataScalingType,["none","Centering","Auto","Pareto","Vast","Range","Level"])} = "none"
+        pValueMax               (1,1) double {mustBeInRange(pValueMax,0,1)} = 0.05
+        foldChangeMin           (1,1) double {mustBePositive} = 2
+        useHochbergFilter      (1,1) logical = false
     end
 
     methods
@@ -90,8 +98,58 @@ classdef EvaluationOptions
 
                 %% Plot Area
                 obj.PlotSpace = tiledlayout(obj.Container,"flow","TileSpacing","tight",Padding="compact",Units="pixels",OuterPosition=[200 100 975 550],PositionConstraint="outerposition",Visible="on");
+
+                %% Callback functions
+                obj.TICButton.ButtonPushedFcn = @(src,event) {PlotTICs(obj,CallingApp,src,event)};
+                obj.ROIButton.ButtonPushedFcn = @(src,event) {PlotROIs(obj,CallingApp,src,event)};
+                obj.IntegrationButton.ButtonPushedFcn = @(src,event) {PlotIntResults(obj,CallingApp,src,event)};
+                obj.EntropyButton.ButtonPushedFcn = @(src,event) {PlotEntropy(obj,CallingApp,src,event)};
+                obj.SNButton.ButtonPushedFcn = @(src,event) {PlotSN(obj,CallingApp,src,event)};
+                obj.RejectedButton.ButtonPushedFcn = @(src,event) {PlotRejects(obj,CallingApp,src,event)};
+                obj.ScatterButton.ButtonPushedFcn = @(src,event) {PlotScatter(obj,CallingApp,src,event)};
+                obj.CloudButton.ButtonPushedFcn = @(src,event) {PlotCloud(obj,CallingApp,src,event)};
+                obj.ProbabilityButton.ButtonPushedFcn = @(src,event) {PlotProbability(obj,CallingApp,src,event)};
+                obj.DistributionButton.ButtonPushedFcn = @(src,event) {PlotFeatureDistribution(obj,CallingApp,src,event)};
+                obj.pDistributionButton.ButtonPushedFcn = @(src,event) {PlotpDistribution(obj,CallingApp,src,event)};
+                obj.IsMassDeltaButton.ButtonPushedFcn = @(src,event) {PlotISdeviation(obj,CallingApp,src,event)};
+                obj.VolcanoButton.ButtonPushedFcn = @(src,event) {PlotVolcano(obj,CallingApp,src,event)};
+                obj.HeatmapButton.ButtonPushedFcn = @(src,event) {PlotHeatmap(obj,CallingApp,src,event)};
+                obj.PCAButton.ButtonPushedFcn = @(src,event) {PlotPCA(obj,CallingApp,src,event)};
+                obj.DatabaseButton.ButtonPushedFcn = @(src,event) {OpenDatabaseWindow(obj,CallingApp,src,event)};
+                obj.ExportButton.ButtonPushedFcn = @(src,event) {ExportResults(obj,CallingApp,src,event)};
             end
         end
+
+%% Plot Functions
+function PlotTICs(obj,CallingApp,~,~)
+            d = uiprogressdlg(CallingApp.MainWindow,'Title','Please Wait','Message','Please Wait','Indeterminate','on');
+            delete(obj.PlotSpace.Children)
+            obj.PlotSpace.Title.String = " ";
+            obj.PlotSpace.XLabel.String = " ";
+            obj.PlotSpace.YLabel.String = " ";
+            % plot all TICs for every Group
+            for iMassData = 1:numel(CallingApp.MassData)
+                FileNameArray = CallingApp.MassData{iMassData}.FileNames;
+                GroupNameArray = CallingApp.MassData{iMassData}.GroupName;
+                chromatogramData = CallingApp.MassData{iMassData}.RawDataFileObj.PreviewTICs;
+                timeData = CallingApp.MassData{iMassData}.RawDataFileObj.PreviewTimes;
+                nDataFile = size(chromatogramData,1);
+                obj.PlotTiles(iMassData) = nexttile(obj.PlotSpace);
+                for jFile = 1:nDataFile
+                    TIC=chromatogramData{jFile,1};
+                    plot(obj.PlotTiles(iMassData),timeData{jFile},TIC)
+                    colororder(obj.PlotTiles(iMassData),"gem12")
+                    obj.PlotTiles(iMassData).NextPlot = 'add';
+                end
+                title(obj.PlotTiles(iMassData),"Sample TICs for " + GroupNameArray)
+                legend(obj.PlotTiles(iMassData),FileNameArray,Interpreter='none')
+                drawnow limitrate
+            end
+            xlabel(obj.PlotSpace,"RT [sec]")
+            ylabel(obj.PlotSpace,"Intensity [arb]")
+            close(d)
+        end
+
     end
 end
 

@@ -112,11 +112,11 @@ classdef NegAdducts < AddNLoss
             obj.DoubleArray.Position = [17 250 51 22];
 
             %load previous data
-            obj.TripleArray(:).Value = CallingData.AddSelectedNeg(16);
-            obj.DoubleArray(:).Value = CallingData.AddSelectedNeg(15);
-            val=num2cell(CallingData.AddSelectedNeg(11:14));
+            obj.TripleArray(:).Value = CallingData.adductSelectedNeg(16);
+            obj.DoubleArray(:).Value = CallingData.adductSelectedNeg(15);
+            val=num2cell(CallingData.adductSelectedNeg(11:14));
             [obj.DimerArray(:).Value] = deal(val{:});
-            val=num2cell(CallingData.AddSelectedNeg(1:10));
+            val=num2cell(CallingData.adductSelectedNeg(1:10));
             [obj.SingleArray(:).Value] = deal(val{:});
         end
 

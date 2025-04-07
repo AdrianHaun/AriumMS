@@ -165,7 +165,17 @@ end
 polarity(polarity == "positive scan") = "+";
 polarity(polarity == "negative scan") = "-";
 
-%store in output structs
+% remove empty rows
+idx = cellfun(@isempty,scanData);
+msLevels(idx) = [];
+collisionEnergy(idx) = [];
+fragMethod(idx) = [];
+scanData(idx) = [];
+polarity(idx) = [];
+precursorMass(idx) = [];
+retentionTime(idx) = [];
+
+%store in output struct
 idMS1 = msLevels == 1;
 scanDataMS1.profileDataMS1 = scanData(idMS1);
 scanDataMS1.timeDataMS1 = retentionTime(idMS1);

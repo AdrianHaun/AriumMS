@@ -12,7 +12,7 @@ classdef RawData
         fileName    (:,1) string
         dataFile    (:,1) string
         blankFile   (:,1) string
-        groupName   (:,1) string
+        groupName   (1,1) string
         % Main Processing Options
         useBlankSubtraction   (1,1) logical = false
         useSmoothing          (1,1) logical = false
@@ -28,7 +28,7 @@ classdef RawData
         roiThreshold            (1,1) double {mustBeInteger,mustBePositive} = 5000
         withinFileMassTolerance (1,1) double {mustBePositive} = 0.01
         withinFileMassUnit      (1,1) string {mustBeMember(withinFileMassUnit,["Da","ppm"])} = "Da"
-        roiMinOccurence         (1,1) double {mustBeInteger,mustBePositive} = 20
+        roiMinOccurrence         (1,1) double {mustBeInteger,mustBePositive} = 20
         measurementStartTime    (1,1) double {mustBeFinite} = 0
         measurementEndTime      (1,1) double {mustBeFinite} = 1
         % Baseline Correction Parameters
@@ -37,7 +37,7 @@ classdef RawData
         baselineRegressionMethod    (1,1) string {mustBeMember(baselineRegressionMethod,["pchip","linear","spline"])} = "pchip"
         baselineEstimationMethod    (1,1) string {mustBeMember(baselineEstimationMethod,["quantile","em"])} = "em"
         baselineSmoothMethod        (1,1) string {mustBeMember(baselineSmoothMethod,["none","lowess","loess"])} = "none"
-        baselineQuantilVal          (1,1) double {mustBeInRange(baselineQuantilVal,0,1)} = 0.1
+        baselineQuantil             (1,1) double {mustBeInRange(baselineQuantil,0,1)} = 0.1
         %Golay Parameters
         smoothingFrameSize  (1,1) double {mustBeInteger,mustBePositive} = 20
         smoothingDegree     (1,1) double {mustBeInteger,mustBePositive} = 2
@@ -208,7 +208,7 @@ classdef RawData
             %preallocation
             DataMS1 = cell(nFile,1);
             DataMS2 = cell(nFile,1);
-            parfor iFile = 1:nFile
+            for iFile = 1:nFile
                 %filetype check
                 fileType = strsplit(dataFile(iFile),'.');
                 fileType = fileType(end);
@@ -289,7 +289,7 @@ classdef RawData
                         obj.withinFileMassTolerance = bayesOptions.mzerror;
                     end
                     if ismember("minRoi",bayesOptions.Properties.VariableNames)
-                        obj.roiMinOccurence = bayesOptions.minRoi;
+                        obj.roiMinOccurrence = bayesOptions.minRoi;
                     end
                     if ismember("minPeakWidth",bayesOptions.Properties.VariableNames) && ~isnan(bayesOptions.minPeakWidth)
                         obj.peakMinWidth = bayesOptions.minPeakWidth;
@@ -380,7 +380,7 @@ classdef RawData
                         obj.baselineEstimationMethod = bayesOptions.estimationMethod;
                     end
                     if ismember("quantile",bayesOptions.Properties.VariableNames)
-                        obj.baselineQuantilVal = bayesOptions.quantile;
+                        obj.baselineQuantil = bayesOptions.quantile;
                     end
                     %Smoothing parameters
                     if ismember("frameSize",bayesOptions.Properties.VariableNames)
@@ -399,7 +399,7 @@ classdef RawData
                         obj.withinFileMassTolerance = bayesOptions.mzerror;
                     end
                     if ismember("minRoi",bayesOptions.Properties.VariableNames)
-                        obj.roiMinOccurence = bayesOptions.minRoi;
+                        obj.roiMinOccurrence = bayesOptions.minRoi;
                     end
                     if ismember("minPeakWidth",bayesOptions.Properties.VariableNames) && ~isnan(bayesOptions.minPeakWidth)
                         obj.peakMinWidth = bayesOptions.minPeakWidth;
@@ -506,7 +506,7 @@ classdef RawData
                                 obj.baselineSmoothMethod = bayesOptions.smoothingMethod;
                             end
                             if ismember("quantile",bayesOptions.Properties.VariableNames)
-                                obj.baselineQuantilVal = bayesOptions.quantile;
+                                obj.baselineQuantil = bayesOptions.quantile;
                             end
                         end
                     end
@@ -608,7 +608,7 @@ classdef RawData
             end
         end
 
-        function obj = ISNormalize(obj)
+        function obj = internalStandardNormalization(obj)
             %% MUST BE UPDATED TO NEW PROCESSING
             %Gather relevant matrices
             if obj.applyISto == "S&B"
@@ -679,7 +679,7 @@ classdef RawData
             end
         end
 
-        function [valuesFiltered,obj] = FilterAdducts(obj,IntegrationResults)
+        function [valuesFiltered,obj] = filterAdducts(obj,IntegrationResults)
             %% MUST BE UPDATED TO NEW PROCESSING
             % AdductFilterAlgo Filters Adduct Peaks from Internal AriumMS integration results
             %   Calculates possible non Adduct (Base) m/z for each
@@ -859,7 +859,7 @@ classdef RawData
                     timeList = obj.TempDataFileObj.TimeCells(1,1);
             end
             THRESHOLD = obj.roiThreshold;
-            MIN_SIZE = obj.roiMinOccurence;
+            MIN_SIZE = obj.roiMinOccurrence;
             MASS_ERROR = obj.withinFileMassTolerance;
             MASS_ERROR_UNIT = obj.withinFileMassUnit;
 
@@ -941,7 +941,7 @@ classdef RawData
             REGRESSION = obj.baselineRegressionMethod;
             ESTIMATION = obj.baselineEstimationMethod;
             SMOOTHING = obj.baselineSmoothMethod;
-            QUANTIL = obj.baselineQuantilVal;
+            QUANTIL = obj.baselineQuantil;
 
             parfor iFile = 1:size(msRoi,1)
                 oldSize = size(msRoi{iFile,1});
@@ -1053,10 +1053,10 @@ classdef RawData
             obj.nScanPadded = paddedSize;
             obj.nScan(length(paddedSize)+1:end) = [];
             msTemp = vertcat(msRoi{:});
-            %remove empty columns
-            id = all(msTemp < obj.roiThreshold,1);
-            msTemp(:,id) = [];
             msTemp = max(msTemp,0);
+            %remove empty columns
+            id = all(msTemp == 0,1);
+            msTemp(:,id) = [];
             if obj.useBlankSubtraction == true
                 obj.TempDataFileObj.ROIMatBLK(:,id) = [];
             end
@@ -1204,7 +1204,7 @@ classdef RawData
             end
         end
 
-        function Output = occurenceFilterFeatures(obj,Output)
+        function Output = occurrenceFilterFeatures(obj,Output)
             %% remove features with less peaks than required minimum from Output struct
             nFile = numel(obj.dataFile);
             minDataPoints = ceil(nFile*obj.minOccurence);
@@ -1223,7 +1223,7 @@ classdef RawData
             Output.feature = FeatureStruct;
         end
 
-        function Output = finalizeBatchOutput(obj,Output)
+        function Output = finalizeFeatureOutput(obj,Output)
             %% finalizes feature Output Struct
             % fills remaining fields: dataSize, featID
             % rounds retentionTime

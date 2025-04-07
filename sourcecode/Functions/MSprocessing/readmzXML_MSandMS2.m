@@ -87,7 +87,7 @@ for i = 1:(scanNodes.getLength)
     PeaksString = char(peaksNode.getTextContent);
     %decode
     if msLevels(i) > 2
-        scanData{i}=0;
+        scanData{i} = 0;
     else
         if compression == true
             intlist = decodeCompressed(PeaksString,precision,endian);
@@ -99,13 +99,14 @@ for i = 1:(scanNodes.getLength)
     end
 end
 % remove empty rows
-idx = msLevels == 0;
-CollisionEnergy(idx)=[];
-FragMethod(idx)=[];
-scanData(idx)=[];
-polarity(idx)=[];
-PrecursorMass(idx)=[];
-retentionTime(idx)=[];
+idx = cellfun(@isempty,scanData);
+msLevels(idx) = [];
+CollisionEnergy(idx) = [];
+FragMethod(idx) = [];
+scanData(idx) = [];
+polarity(idx) = [];
+PrecursorMass(idx) = [];
+retentionTime(idx) = [];
 
 %convert times to double and round to first decimal
 retentionTime = cellfun(@(x) sscanf(x,'PT %f'), retentionTime);

@@ -13,6 +13,10 @@ arguments
     originalScans (:,1) cell
 end
 
+if isempty(originalScans)
+    return
+end
+
 %preallocate output
 normalizedScans = cell(size(originalScans));
 

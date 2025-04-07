@@ -13,6 +13,10 @@ mzCDFStruct = mzcdfread(dataPath,'Verbose',false);
 
 [peakList, retentionTimes] = mzcdf2peaks(mzCDFStruct);
 
+%remove possible empty scans
+idx = cellfun(@isempty,peakList);
+peakList(idx) = [];
+retentionTimes(idx) = [];
 
 ScanDataMS1.profileDataMS1 = peakList;
 ScanDataMS1.timeDataMS1 = retentionTimes;

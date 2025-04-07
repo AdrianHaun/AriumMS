@@ -195,13 +195,13 @@ classdef PosAdducts < AddNLoss
             obj.AllDoubles.Position = [15 250 35 22];
 
             %load previous data
-            val = num2cell(CallingData.AddSelectedPos(27:30));
+            val = num2cell(CallingData.adductSelectedPos(27:30));
             [obj.TripleArray(:).Value] = deal(val{:});
-            val = num2cell(CallingData.AddSelectedPos(19:26));
+            val = num2cell(CallingData.adductSelectedPos(19:26));
             [obj.DoubleArray(:).Value] = deal(val{:});
-            val=num2cell(CallingData.AddSelectedPos(13:18));
+            val=num2cell(CallingData.adductSelectedPos(13:18));
             [obj.DimerArray(:).Value] = deal(val{:});
-            val=num2cell(CallingData.AddSelectedPos(1:12));
+            val=num2cell(CallingData.adductSelectedPos(1:12));
             [obj.SingleArray(:).Value] = deal(val{:});
         end
 

@@ -43,7 +43,7 @@ else %align scans using ROI
     [mzroi,MSroi,~] = ROIpeaks3(spectraCells,0,mzerror,"Da",1,times);
 
     if strcmp("average",mode)
-        MSroi = mean(MSroi);
+        MSroi = sum(MSroi);
     end
 
     alignedSpectra = [mzroi;MSroi]';

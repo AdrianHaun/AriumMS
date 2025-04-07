@@ -15,6 +15,11 @@ arguments
     profileScans (:,1) cell
 end
 
+if isempty(profileScans)
+    centroidedScans = {[]};
+    return
+end
+
 %preallocate output
 centroidedScans = cell(size(profileScans));
 
@@ -37,3 +42,7 @@ parfor nScan = 1:height(centroidedScans)
     end
     centroidedScans{nScan,1} = maxIntensity;
 end
+
+%remove possible empty scans
+idx = cellfun(@isempty,centroidedScans);
+centroidedScans(idx) = [];

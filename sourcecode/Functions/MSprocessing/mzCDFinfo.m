@@ -4,18 +4,20 @@ arguments
     dataPath  (1,1) string
 end
 
-FileInfo = struct('NumberOfScansMS1',[],...
-    'NumberOfScansMSn',[],...
-    'StartTime',[],...
-    'EndTime',[]);
+FileInfo =  struct('numberOfScansMS1',[],...
+                'numberOfScansMSn',[],...
+                'startTime',[],...
+                'endTime',[],...
+                'scanFrequenceMS1',[],...
+                'scanFrequenceMS2',[]);
 
 
 fileInfos = mzcdfinfo(dataPath);
 
-FileInfo.NumberOfScansMS1 = fileInfos.NumberOfScans;
-FileInfo.NumberOfScansMSn = NaN;
-FileInfo.StartTime = fileInfos.StartTime;
-FileInfo.EndTime = fileInfos.EndTime;
+FileInfo.numberOfScansMS1 = fileInfos.NumberOfScans;
+FileInfo.numberOfScansMSn = NaN;
+FileInfo.startTime = fileInfos.StartTime;
+FileInfo.endTime = fileInfos.EndTime;
 
 mzCDFStruct = mzcdfread(dataPath,'Verbose',false);
 

@@ -2,7 +2,7 @@ classdef LCData < RawData
     % Class for storing group settings and performing functions from Raw
     % data until Feature data stage
     properties
-        SeparationType (1,1) string = "LC"
+        separationType (1,1) string = "LC"
     end
 
     methods
@@ -16,7 +16,7 @@ classdef LCData < RawData
         end
 
         %% Data Processing
-        function [Output,obj] = BatchProcess(obj,varargin)
+        function [Output,obj] = extractFeaturesFromMassData(obj,varargin)
             %check if old results exist and delete them
             if isfile(obj.ROIDataFile)
                 delete(obj.ROIDataFile)
@@ -25,35 +25,33 @@ classdef LCData < RawData
             if numel(varargin) == 2
                 mode = varargin{1};
                 bayesOptions = varargin{2};
-                obj = obj.SetOptimizationOptions(mode,bayesOptions);
+                obj = obj.setOptimizationOptions(mode,bayesOptions);
             elseif isscalar(varargin)
                 error("Wrong number of inputs")
             else
-                title = "Processing " + obj.GroupName;
+                title = "Processing " + obj.groupName;
                 progressBar = uiprogressdlg(obj.mainWindow,"Title",title,"Message","Preparation",Value=0);
             end
 
-            nFiles = size(obj.Files,1);
-            FileLocs = obj.Files;
-            nData = nFiles;
-            if obj.BLKSubtraction == true
-                nBLK = size(obj.BlankFiles,1);
-                nData = nFiles+nBLK;
-                FileLocs=[FileLocs;obj.BlankFiles];
+            fileArray = obj.dataFile;
+            nBlanks = 0;
+            if obj.useBlankSubtraction == true
+                nBlanks = size(obj.blankFile,1);
+                fileArray=[fileArray;obj.blankFile];
             end
             %remove possible empty
-            id=cellfun(@isempty,FileLocs);
-            FileLocs(id)=[];
-            nData = nData-sum(id);
+            iFile = cellfun(@isempty,fileArray);
+            fileArray(iFile) = [];
+            nData = numel(fileArray);
 
             progressBar.Message = "Loading files";
             %check if files already loaded then skip loading stage
             test = obj.RawDataFileObj.centroidedDataMS1;
-            if isempty(test{1,1}) || size([obj.Files;obj.BlankFiles],1) ~= height(test)
-                obj = obj.ReadData(FileLocs,obj.SeparationType);
+            if isempty(test{1,1}) || size([obj.fileName;obj.blankFile],1) ~= height(test)
+                obj = obj.readData(fileArray,obj.separationType);
             end
             
-            clearvars test FileLocs id
+            clearvars test fileArray id
 
             %build TempDataFile
             obj.TempDataFile = tempname +".mat";
@@ -67,162 +65,153 @@ classdef LCData < RawData
             obj.TempDataFileObj.timeVec  = [];
 
             %remove scans outside RT range
-            obj = obj.CutScansToSize;
+            obj = obj.cutScansToSize;
             progressBar.Value = 0.33;
-            tempp = [obj.TempDataFileObj.ROICells,obj.TempDataFileObj.TimeCells];
-            assignin("base","ScansPreIsotope",tempp)
 
             % remove isotopes
-            if obj.IsotopeFilter == true
-                obj = obj.FilterIsotopesScanStage;
+            if obj.useIsotopeFilter == true
+                obj = obj.filterIsotopes;
             end
 
-            tempp = [obj.TempDataFileObj.ROICells,obj.TempDataFileObj.TimeCells];
-            assignin("base","ScansPostIsotope",tempp)
-
-            tempp = [obj.RawDataFileObj.profileDataMS1,obj.RawDataFileObj.timeDataMS1];
-            assignin("base","ScansProfile",tempp)
-
-            obj.nScans = cellfun(@numel,obj.TempDataFileObj.TimeCells);
-            if obj.MSalign == true
+            obj.nScan = cellfun(@numel,obj.TempDataFileObj.TimeCells);
+            if obj.useMassAlign == true
                 progressBar.Message = "Aligning MS Scans";
-                obj = obj.AlignScans("batch");
+                obj = obj.alignMasses("batch");
                 progressBar.Value = 0.4;
             end
 
             % ROI Search
             progressBar.Message = "Searching for ROIs";
-            obj = obj.AutoROI("batch");
+            obj = obj.findRegionOfInterest("batch");
             progressBar.Value = 0.5;
 
             % Average BLK
-            if obj.BLKSubtraction == true && nBLK > 1
-                obj = obj.AverageBLK(nBLK);
+            if obj.useBlankSubtraction == true && nBlanks > 1
+                obj = obj.averageBlankFiles;
                 nData = size(obj.TempDataFileObj.ROICells,1); % update number of matrices
             end
 
             %Common Contaminant filter
-            if obj.ContaminantFilter == true
+            if obj.useContaminantFilter == true
                 progressBar.Message = "Removing Contaminants";
                 obj = obj.removeContaminants;
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Baseline Correction
-            if obj.BaseCorr == true
+            if obj.useBaselineCorrection == true
                 progressBar.Message = "Correcting Baseline";
-                obj = obj.CorrectBaseline("batch");
+                obj = obj.correctBaseline("batch");
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Smoothing
-            if obj.Smoothing == true
+            if obj.useSmoothing == true
                 progressBar.Message = "Smoothing Peaks";
-                obj = obj.SmoothPeaks("batch");
+                obj = obj.smoothPeaks("batch");
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Peak Align
-            if obj.Peakalign == true && nData > 1
+            if obj.usePeakAlign == true && nData > 1
                 progressBar.Message = "Aligning Peaks";
-                obj = obj.AlignPeaks("batch");
+                obj = obj.alignPeaks("batch");
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
-            if obj.BLKSubtraction == true % Separate Blank data from Sample data
+            if obj.useBlankSubtraction == true % Separate Blank data from Sample data
                 tempBLK = obj.TempDataFileObj.ROICells(end,1);
-                obj.TempDataFileObj.ROIMatBLK=sparse(tempBLK{:});
-                obj.TempDataFileObj.ROICells(end)=[];
-                obj.TempDataFileObj.TimeCells(end)=[];
+                obj.TempDataFileObj.ROIMatBLK = sparse(tempBLK{:});
+                obj.TempDataFileObj.ROICells(end) = [];
+                obj.TempDataFileObj.TimeCells(end) = [];
             end
 
-            % subtract blank before IS normalization
-            if obj.BLKSubtraction == true && obj.ISOrder == "BlankIS"
+           % subtract blank before IS normalization
+            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "BlankIS"
                 progressBar.Message = "Subtracting Blank";
                 peakCells = obj.TempDataFileObj.ROICells;
-                BLKMat = obj.TempDataFileObj.ROIMatBLK;
-                parfor id=1:size(peakCells,1)
-                    peakCells{id,1}=peakCells{id,1}-BLKMat;
+                blankMat = obj.TempDataFileObj.ROIMatBLK;
+                parfor iFile = 1:size(peakCells,1)
+                    peakCells{iFile,1} = peakCells{iFile,1}-blankMat;
                     % set possible negative values to 0
-                    peakCells{id,1} = max(peakCells{id,1},0);
+                    peakCells{iFile,1} = max(peakCells{iFile,1},0);
                 end
                 obj.TempDataFileObj.ROICells = peakCells;
                 progressBar.Value = progressBar.Value + 0.05;
             end
-            
             % pad arrays with Maximum peak width*3 Scans to eliminate
             % integration interference between matrices
-            obj = obj.FinalizeROI;
+            obj = obj.finalizeROI;
 
             clearvars -except obj progressBar
             %% Integration Stage
             % Find and Integrate IS separate
-            if obj.ISTDCorr == true
+            if obj.useInternalStandard == true
                 progressBar.Message = "Searching for Internal Standard";
-                obj = obj.IntegrateIS;
-                if ~isempty(obj.ISValue)
-                    obj = obj.ISNormalize;
+                obj = obj.identifyInternalStandard;
+                if ~isempty(obj.internalStandardData)
+                    obj = obj.internalStandardNormalization;
                 end
-                 progressBar.Value = progressBar.Value + 0.05;
+                progressBar.Value = progressBar.Value + 0.05;
             end
             % BLK Subtraction after IS Correction
-            if obj.BLKSubtraction == true && obj.ISOrder == "ISBlank"
+            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "ISBlank"
                 progressBar.Message = "Subtracting Blank";
-                MSroi = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScansPadded);
-                MatBLK = obj.TempDataFileObj.ROIMatBLK;
-                parfor id=1:size(MSroi,1)
-                    MSroi{id,1}=MSroi{id,1}-padarray(MatBLK,size(MSroi{id,1},1)-size(MatBLK,1),0,'post');
+                roiDataFile = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScansPadded);
+                roiDataBlank = obj.TempDataFileObj.ROIMatBLK;
+                parfor iFile = 1:size(roiDataFile,1)
+                    roiDataFile{iFile,1} = roiDataFile{iFile,1}-padarray(roiDataBlank,size(roiDataFile{iFile,1},1)-size(roiDataBlank,1),0,'post');
                 end
-                MSroi = vertcat(MSroi{:});
-                MSroi = max(MSroi,0);
-                id = all(MSroi >= obj.thresh,1);
-                obj.TempDataFileObj.ROIMat = MSroi(:,id);
+                roiDataFile = vertcat(roiDataFile{:});
+                roiDataFile = max(roiDataFile,0);
+                id = all(roiDataFile >= obj.thresh,1);
+                obj.TempDataFileObj.ROIMat = roiDataFile(:,id);
                 obj.TempDataFileObj.ROImzVec(:,~id) = [];
                 progressBar.Value = progressBar.Value + 0.05;
             end
             % mass correction
             if obj.MassCal == true && ~isempty(obj.ISValue)
                 progressBar.Message = "Performing IS mass correction";
-                obj = obj.ISMassCorrection;
+                obj = obj.useISMassCorrection;
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
             % Integrate all Peaks
             IDX = true(1,size(obj.TempDataFileObj.ROIMat,2));
             progressBar.Message = "Integrating Peaks";
-            IntegrationData = obj.LCIntegrate(IDX);
+            IntegrationData = obj.findPeaks(IDX);
             progressBar.Value = 0.9;
 
             progressBar.Message = "Processing found Features";
-            IntegrationData = obj.AssignRT2SampleFile(IntegrationData);
-            IntegrationData = obj.FileSortPeaks(IntegrationData);
+            IntegrationData = obj.assignFileID(IntegrationData);
+            IntegrationData = obj.fileSortPeaks(IntegrationData);
 
             %%%%%%%
             % % remove adducts
-            % if obj.AdductFilter == true
-            %     [IntegrationData,obj] = obj.FilterAdducts(IntegrationData);
+            % if obj.useAdductFilter == true
+            %     [IntegrationData,obj] = obj.filterAdducts(IntegrationData);
             % end
             %%%%%%%
             
 
             % Build Storage Arrays and filter by number of occurences
-            [Output,obj] = obj.BuildStorageArrays_LC(IntegrationData);
+            [Output,obj] = obj.buildFeatureArray(IntegrationData);
 
             %
             % Output = obj.ConfirmSameFeatureByIsotopeDistribution(Output);
 
-            % Occurence filter
-            Output = obj.OccurenceFilterFeatures(Output);
+            % Occurrence filter
+            Output = obj.occurrenceFilterFeatures(Output);
 
             %gather MS2 spectra
-            Output = obj.GatherMS2Spectra(Output);
+            Output = obj.gatherMS2Spectra(Output);
             
             %fill remaining fields
-            Output = obj.FinalizeBatchOutput(Output);
+            Output = obj.finalizeFeatureOutput(Output);
 
             % apply scaling
             progressBar.Message = "Apply scaling";
-            Output = obj.GroupAndSampleScaling(Output);
+            Output = obj.groupAndSampleScaling(Output);
             
             progressBar.Message = "Group processing successful";
             progressBar.Value = 1;
@@ -239,7 +228,7 @@ classdef LCData < RawData
                 obj.ROIDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec;
                 obj.ROIDataFileObj.timeVec  = obj.TempDataFileObj.timeVec;
             end
-            %delete Temprorary file
+            %delete Temporary file
             delete(obj.TempDataFile)
             obj.TempDataFile = "";
             close(progressBar)
@@ -247,7 +236,7 @@ classdef LCData < RawData
 
         %% helper functions
 
-        function obj = IntegrateIS(obj)
+        function obj = identifyInternalStandard(obj)
             % identify IS Vectors
             obj.ISMass = obj.ISDat(:,1)';
             mzVec = obj.TempDataFileObj.ROImzVec;
@@ -286,7 +275,7 @@ classdef LCData < RawData
             obj.ISMass(~foundMassID)=[];
             % extract relevant columns and perform Peak Picking and
             % Integration
-            ISIntegrationData = obj.LCIntegrate(ISid);
+            ISIntegrationData = obj.findPeaks(ISid);
             % remove possible empty columns
             id = cellfun(@isempty,ISIntegrationData(1,:));
             ISIntegrationData(:,id) = [];
@@ -301,7 +290,7 @@ classdef LCData < RawData
             % assign Peaks to Sample
             ISIntegrationData = obj.AssignRT2SampleFile(ISIntegrationData);
             ISIntegrationData(5:7,:) = [];
-            ISData = obj.BuildStorageArrays_LC(ISIntegrationData,obj.ISMassFound);
+            ISData = obj.buildFeatureArray(ISIntegrationData,obj.ISMassFound);
 
             % check if RT Range is Correct and Remove Feature outside range
             nIS = height(obj.ISDat);
@@ -387,28 +376,28 @@ classdef LCData < RawData
             end
         end
 
-        function IntResults = LCIntegrate(obj,Index)
+        function IntegrationResults = findPeaks(obj,Index)
             %gather data            
-            Mat = obj.TempDataFileObj.ROIMat;
-            Mat = Mat(:,Index);
-            mzVec = obj.TempDataFileObj.ROImzVec;
-            times = obj.TempDataFileObj.timeVec;
+            roiMat = obj.TempDataFileObj.ROIMat;
+            roiMat = roiMat(:,Index);
+            mzValueArray = obj.TempDataFileObj.ROImzVec;
+            timeArray = obj.TempDataFileObj.timeVec;
 
             % calculate EIC derivatives and store as sparse
-            smoothed = smoothdata(Mat,"gaussian","omitnan","SmoothingFactor",0.1);
-            Diff2 = zeros(length(times),size(Mat,2));
+            smoothed = smoothdata(roiMat,"gaussian","omitnan","SmoothingFactor",0.1);
+            Diff2 = zeros(length(timeArray),size(roiMat,2));
             Diff2(1:end-2,:) = diff(smoothed,2);
-            numEIC = size(Mat,2);
+            nMass = size(roiMat,2);
 
             % prepare wavelet filter-bank
             FilterBank = cwtfilterbank("SignalLength",size(Diff2,1), ...
                 "WaveletParameters",[3 4], ...
                 "VoicesPerOctave",8, ...
-                "SamplingPeriod",seconds(obj.ScanFrequency), ...
-                "PeriodLimits",[seconds(obj.minWidth) seconds(obj.maxWidth)]);
+                "SamplingPeriod",seconds(obj.scanFrequencySecond), ...
+                "PeriodLimits",[seconds(obj.peakMinWidth) seconds(obj.peakMaxWidth)]);
             
             %preallocate storage struct
-            IntResults = struct( ...
+            IntegrationResults = struct( ...
                 "mass",[], ...
                 "peakLocation",[], ...
                 "peakRetentionTime",[], ...
@@ -425,34 +414,34 @@ classdef LCData < RawData
                 "spectrumMS2",[], ...
                 "XIC",[], ...
                 "fileID",[]);
-            IntResults = repmat(IntResults,numEIC,1);
+            IntegrationResults = repmat(IntegrationResults,nMass,1);
 
-            parfor id = 1:numEIC
-                peaks = AutoCWT(Diff2(:,id),smoothed(:,id),FilterBank);
-                eic = Mat(:,id);
+            parfor iMass = 1:nMass
+                peakData = continuosWaveletPeakPicking(Diff2(:,iMass),smoothed(:,iMass),FilterBank);
+                currentEIC = roiMat(:,iMass);
                 % Correct Peak Borders
-                peaks = CWTBorderCorrection(peaks,eic,smoothed(:,id));
-                IntResults(id).mass = mzVec(id);
-                IntResults(id).peakLocation = peaks(:,1);
-                IntResults(id).peakStartLocation = peaks(:,2);
-                IntResults(id).peakEndLocation = peaks(:,3);
-                IntResults(id).peakHeight = peaks(:,4);
+                peakData = correctPeakData(peakData,currentEIC,smoothed(:,iMass));
+                IntegrationResults(iMass).mass = mzValueArray(iMass);
+                IntegrationResults(iMass).peakLocation = peakData(:,1);
+                IntegrationResults(iMass).peakStartLocation = peakData(:,2);
+                IntegrationResults(iMass).peakEndLocation = peakData(:,3);
+                IntegrationResults(iMass).peakHeight = peakData(:,4);
                 %store EIC
-                IntResults(id).XIC = [times,eic];
+                IntegrationResults(iMass).XIC = [timeArray,currentEIC];
             end
-            %filtere found peaks
-            noise = std(Mat-smoothed);
-            IntResults = obj.FilterPeaks(IntResults,noise);
-            IntResults = obj.FinalizeIntegrationOutput(IntResults,times);
+            %filter found peaks
+            noise = std(roiMat-smoothed);
+            IntegrationResults = obj.filterPeaksFromIntegration(IntegrationResults,noise);
+            IntegrationResults = obj.finalizeIntegrationOutput(IntegrationResults,timeArray);
         end
 
 
 
-        function [output,obj] = BuildStorageArrays_LC(obj,IntegrationResults,varargin)
+        function [Output,obj] = buildFeatureArray(obj,IntegrationResults,varargin)
             nFiles = numel(obj.Files);
 
             %preallocate Output struct
-            output = struct(...
+            Output = struct(...
                 "feature",[],...
                 "minWidthFiltered",[],...
                 "maxWidthFiltered",[],...
@@ -465,18 +454,18 @@ classdef LCData < RawData
                 "separationType",string);
 
             %store group infos
-            output.minWidthFiltered = sum(vertcat(IntegrationResults(:).minWidthFiltered));
-            output.maxWidthFiltered = sum(vertcat(IntegrationResults(:).maxWidthFiltered));
-            output.entropyFiltered = sum(vertcat(IntegrationResults(:).entropyFiltered));
-            output.signal2NoiseFiltered = sum(vertcat(IntegrationResults(:).signal2NoiseFiltered));
-            output.fileNames = obj.FileNames;
-            output.groupName = obj.GroupName;
-            output.separationType = obj.SeparationType;
+            Output.minWidthFiltered = sum(vertcat(IntegrationResults(:).minWidthFiltered));
+            Output.maxWidthFiltered = sum(vertcat(IntegrationResults(:).maxWidthFiltered));
+            Output.entropyFiltered = sum(vertcat(IntegrationResults(:).entropyFiltered));
+            Output.signal2NoiseFiltered = sum(vertcat(IntegrationResults(:).signal2NoiseFiltered));
+            Output.fileNames = obj.FileNames;
+            Output.groupName = obj.GroupName;
+            Output.separationType = obj.separationType;
 
             %remove unnecessary fields from input struct
             IntegrationResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
 
-            emptyStruct = struct(...
+            EmptyStruct = struct(...
                 "featID",strings,...
                 "mass_measured",[],...
                 "retentionTime",NaN,...
@@ -508,27 +497,27 @@ classdef LCData < RawData
 
             %match features and store in feature struct
 
-            parfor featMass = 1:length(IntegrationResults)
-                currentFeatureStruct = emptyStruct;
-                currentFeatureStruct.mass_measured = IntegrationResults(featMass).mass;
-                currentFeatureStruct.XIC = IntegrationResults(featMass).XIC;
+            parfor iFeature = 1:length(IntegrationResults)
+                currentFeatureStruct = EmptyStruct;
+                currentFeatureStruct.mass_measured = IntegrationResults(iFeature).mass;
+                currentFeatureStruct.XIC = IntegrationResults(iFeature).XIC;
 
-                numPeaks = numel(vertcat(IntegrationResults(featMass).peakLocation{:}));
+                nPeaks = numel(vertcat(IntegrationResults(iFeature).peakLocation{:}));
 
                 %unpack data
-                peakData = zeros(numPeaks,10);
-                peakData(:,1) = vertcat(IntegrationResults(featMass).peakLocation{:});
-                peakData(:,2) = vertcat(IntegrationResults(featMass).peakRetentionTime{:});
-                peakData(:,3) = vertcat(IntegrationResults(featMass).peakStartLocation{:});
-                peakData(:,4) = vertcat(IntegrationResults(featMass).peakEndLocation{:});
-                peakData(:,5) = vertcat(IntegrationResults(featMass).peakHeight{:});
-                peakData(:,6) = vertcat(IntegrationResults(featMass).peakArea{:});
-                peakData(:,7) = vertcat(IntegrationResults(featMass).entropy{:});
-                peakData(:,8) = vertcat(IntegrationResults(featMass).signal2Noise{:});
-                peakData(:,9) = vertcat(IntegrationResults(featMass).fileID{:});
+                peakData = zeros(nPeaks,10);
+                peakData(:,1) = vertcat(IntegrationResults(iFeature).peakLocation{:});
+                peakData(:,2) = vertcat(IntegrationResults(iFeature).peakRetentionTime{:});
+                peakData(:,3) = vertcat(IntegrationResults(iFeature).peakStartLocation{:});
+                peakData(:,4) = vertcat(IntegrationResults(iFeature).peakEndLocation{:});
+                peakData(:,5) = vertcat(IntegrationResults(iFeature).peakHeight{:});
+                peakData(:,6) = vertcat(IntegrationResults(iFeature).peakArea{:});
+                peakData(:,7) = vertcat(IntegrationResults(iFeature).entropy{:});
+                peakData(:,8) = vertcat(IntegrationResults(iFeature).signal2Noise{:});
+                peakData(:,9) = vertcat(IntegrationResults(iFeature).fileID{:});
                 peakData(:,10) = (peakData(:,4)-peakData(:,1))./(peakData(:,1)-peakData(:,3)); %asymmetry factor
                 
-                % preallocat current feature Storage
+                % preallocate current feature Storage
                 currentFeatureStruct = repmat(currentFeatureStruct,height(peakData),1);
                 
                 %store first new entry
@@ -591,12 +580,12 @@ classdef LCData < RawData
                     peakData(1,:) = [];
                 end
 
-                %remove empty structs
+                %remove empty struct
                 id = isnan([currentFeatureStruct(:).retentionTime])';
                 currentFeatureStruct(id) = [];
 
                 %store currentFeatureStruct
-                storedFeatures{featMass,1} = currentFeatureStruct;
+                storedFeatures{iFeature,1} = currentFeatureStruct;
             end
 
             %unzip features
@@ -608,57 +597,53 @@ classdef LCData < RawData
                 storedFeatures = obj.FindOriginalScans(storedFeatures);
             end
 
-            output.feature = storedFeatures;
+            Output.feature = storedFeatures;
         end
 
-        function outputStruct = GatherMS2Spectra(obj,outputStruct)
+        function outputStruct = gatherMS2Spectra(obj,outputStruct)
             %check if MSn data is already loaded
             if isscalar(obj.RawDataFileObj.centroidedDataMS2)
-                obj = obj.ReadData(obj.Files,obj.SeparationType);
+                obj = obj.ReadData(obj.fileName,obj.separationType);
             end
 
             %%%%%
             % test tolerances
-            % rttol = obj.RTTol;
-            % mztol = obj.mzTol;
-            % mztolUnit = obj.mzTolUnit;
-
-            mzTol = 0.05;
-            mztolUnit = "Da";
-            rttol = 10;
+            MASSTOLERANCE = 0.05;
+            MASSUNIT = "Da";
+            TIMETOLERANCE = 10;
             %%%%%%
             
 
-            times = obj.RawDataFileObj.timeDataMS2;
-            times = vertcat(times{:});
-            scans = obj.RawDataFileObj.centroidedDataMS2;
-            scans = vertcat(scans{:});
+            timeArray = obj.RawDataFileObj.timeDataMS2;
+            timeArray = vertcat(timeArray{:});
+            scanArray = obj.RawDataFileObj.centroidedDataMS2;
+            scanArray = vertcat(scanArray{:});
             precursor = obj.RawDataFileObj.molecularPrecursorMass;
             precursor = vertcat(precursor{:});
                 
-            features = outputStruct.feature;
+            featureArray = outputStruct.feature;
 
-            parfor n = 1:length(features)
-                idM = [];
-                switch mztolUnit
+            parfor iFeature = 1:length(featureArray)
+                idMass = [];
+                switch MASSUNIT
                     case "Da"
-                        idM = abs(precursor-features(n).mass_measured) <= mzTol;
+                        idMass = abs(precursor-featureArray(iFeature).mass_measured) <= MASSTOLERANCE;
                     case "ppm"
-                        idM = abs(precursor-features(n).mass_measured)./features(n).mass_measured*10^6 <= mzTol;
+                        idMass = abs(precursor-featureArray(iFeature).mass_measured)./featureArray(iFeature).mass_measured*10^6 <= MASSTOLERANCE;
                 end
-                idT = abs(times-features(n).retentionTime) <= rttol;
-                id = idT & idM;
-                foundScans = scans(id);
+                idTime = abs(timeArray-featureArray(iFeature).retentionTime) <= TIMETOLERANCE;
+                id = idTime & idMass;
+                foundScan = scanArray(id);
                 %remove possible empty scans
-                    foundScans(cellfun(@isempty, foundScans)) = [];
-                    if numel(foundScans) >= 1 
-                        foundScans = AlignSpectra(foundScans,"average","low");
+                    foundScan(cellfun(@isempty, foundScan)) = [];
+                    if numel(foundScan) >= 1 
+                        foundScan = alignSpectra(foundScan,"average","low","true");
                     else % no found scan
-                        foundScans = [];
+                        foundScan = [];
                     end
-                    features(n).spectrumMS2 = foundScans;
+                    featureArray(iFeature).spectrumMS2 = foundScan;
             end
-            outputStruct.feature = features;
+            outputStruct.feature = featureArray;
         end
     end
 end

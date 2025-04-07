@@ -13,6 +13,10 @@ arguments
     rawScans (:,1) cell
 end
 
+if isempty(rawScans)
+    return
+end
+
 cleanedScans = cell(size(rawScans));
 
 %% determine over all intensity bins
@@ -27,3 +31,7 @@ parfor j = 1:height(cleanedScans)
     data(idx,:) = [];
     cleanedScans{j,1} = data;
 end
+
+%remove possible empty scans
+idx = cellfun(@isempty,cleanedScans);
+cleanedScans(idx) = [];
