@@ -14,6 +14,7 @@ arguments
 end
 
 if isempty(originalScans)
+    normalizedScans = cell(0,1);
     return
 end
 

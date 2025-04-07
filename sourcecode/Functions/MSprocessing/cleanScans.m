@@ -14,6 +14,7 @@ arguments
 end
 
 if isempty(rawScans)
+    cleanedScans = cell(0,1);
     return
 end
 

@@ -208,7 +208,7 @@ classdef RawData
             %preallocation
             DataMS1 = cell(nFile,1);
             DataMS2 = cell(nFile,1);
-            for iFile = 1:nFile
+            parfor iFile = 1:nFile
                 %filetype check
                 fileType = strsplit(dataFile(iFile),'.');
                 fileType = fileType(end);
@@ -944,7 +944,7 @@ classdef RawData
             QUANTIL = obj.baselineQuantil;
 
             parfor iFile = 1:size(msRoi,1)
-                oldSize = size(msRoi{iFile,1});
+                oldSize = height(msRoi{iFile,1});
                 %depad Array
                 msRoiTemp = msRoi{iFile,1};
                 [msRoiTemp,timeTemp] = depadArrays(msRoiTemp,time{iFile,1});
@@ -974,7 +974,7 @@ classdef RawData
             DEGREE = obj.smoothingDegree;
             parfor iFile = 1:size(msRoi,1)
                 %depad Array
-                oldSize = size(msRoi{iFile,1});
+                oldSize = height(msRoi{iFile,1});
                 msRoiTemp = msRoi{iFile,1};
                 [msRoiTemp,timeTemp] = depadArrays(msRoiTemp,time{iFile,1});
                 msRoiTemp = mssgolay(timeTemp,msRoiTemp,'Span',FRAME_SIZE,'Degree',DEGREE);

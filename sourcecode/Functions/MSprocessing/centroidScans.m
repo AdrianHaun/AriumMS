@@ -16,7 +16,7 @@ arguments
 end
 
 if isempty(profileScans)
-    centroidedScans = {[]};
+    centroidedScans = cell(0,1);
     return
 end
 
