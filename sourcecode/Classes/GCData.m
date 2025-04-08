@@ -254,6 +254,7 @@ classdef GCData < RawData
             currentTIC = full(tics);
             currentTime = full(times);
             smoothedTIC = smoothdata(currentTIC,"gaussian",4,"omitnan");
+            minPeakWidthScans = floor(obj.peakMinWidth/obj.scanFrequencySecond);
             %calculate noise level (10th percentile of non zero values)
             noise = prctile(currentTIC(currentTIC > 0),10);
             [~,peakLoc,peakWidth] = findpeaks(currentTIC,"WidthReference","halfheight");
@@ -261,7 +262,7 @@ classdef GCData < RawData
             lowerBorders = max(floor(peakLoc-peakWidth/2),1); % limit lower peak border to scan 1
             upperBorders = min(ceil(peakLoc+peakWidth/2),numel(currentTIC)); % limit upper peak border to last scan
             peakData = [peakLoc,lowerBorders,upperBorders];
-            peakData = correctPeakData(peakData,currentTIC,smoothedTIC);
+            peakData = correctPeakData(peakData,currentTIC,smoothedTIC,minPeakWidthScans);
             IntegrationResults.peakLocation = peakData(:,1);
             IntegrationResults.peakStartLocation = peakData(:,2);
             IntegrationResults.peakEndLocation = peakData(:,3);

@@ -1,4 +1,4 @@
-function correctedPeakArray = correctPeakData(initialPeakArray,originalChromatogram,smoothedChromatogram)
+function correctedPeakArray = correctPeakData(initialPeakArray,originalChromatogram,smoothedChromatogram,minPeakWidth)
 %% correctPeakData updates inital peak location and borders
 % Performs friction border correction and moving standard deviation Border
 % correction on initial peak borders from continuosWaveletPeakPicking. Then
@@ -22,17 +22,22 @@ arguments
     initialPeakArray        (:,3) double
     originalChromatogram    (:,1) double
     smoothedChromatogram    (:,1) double {mustBeEqualSize(originalChromatogram,smoothedChromatogram)}
+    minPeakWidth            (1,1) double
 end
-
 INTENSITY_THRESHOLD_PERCENT =  0.0001;
+
+% initially filter duplicates and bad borders
+initialPeakArray = unique(initialPeakArray,"rows","stable");
+hasBadBorder = initialPeakArray(:,3)-initialPeakArray(:,2) <= minPeakWidth;
+initialPeakArray(hasBadBorder,:) = [];
 
 %preallocate output
 correctedPeakArray = zeros(height(initialPeakArray),4);
 
-%friction border correction
+%scale chromatogram
 smoothedChromatogram = smoothedChromatogram./max(smoothedChromatogram);
 
-%normalize thresh
+%normalize threshhold
 intensityThresholdAbsolute = (max(smoothedChromatogram)-min(smoothedChromatogram))*INTENSITY_THRESHOLD_PERCENT;
 
 %% friction border correction
@@ -87,7 +92,10 @@ for iPeak = 1:size(initialPeakArray,1)
 end
 %get final peak location and height
 for iPeak = 1:size(initialPeakArray,1)
-    [correctedPeakArray(iPeak,4),correctedPeakArray(iPeak,1)] = max(originalChromatogram(correctedPeakArray(iPeak,2):correctedPeakArray(iPeak,3)));
+    temporaryChromatogam = originalChromatogram;
+    temporaryChromatogam(1:correctedPeakArray(iPeak,2)-1) = 0;
+    temporaryChromatogam(correctedPeakArray(iPeak,3)+1:end) = 0;
+    [correctedPeakArray(iPeak,4),correctedPeakArray(iPeak,1)] = max(temporaryChromatogam);
 end
 
 % Custom validation function

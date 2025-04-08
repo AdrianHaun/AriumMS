@@ -88,7 +88,12 @@ classdef MainOptions
                     "Position",[35,3,175,20],...
                     "Text","Common Contaminant Filter",...
                     Tooltip="Removes all features with masses listed in the UWPR Common Mass Spec Contaminants list.");
+
+                %% add callbacks
+                obj.BlankTickBox.ValueChangedFcn = {@useBlankChange,CallingData};
             end
         end
+
+        
     end
 end

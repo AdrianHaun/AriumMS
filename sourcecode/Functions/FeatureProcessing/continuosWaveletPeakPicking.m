@@ -46,7 +46,7 @@ for iPeak = 1:size(initialPeaks,1)
     end
 end
 %remove peaks with missing borders
-initialPeaks(initialPeaks(:,2) == 0,:) = [];
+initialPeaks(initialPeaks(:,2)== 0 | initialPeaks(:,3)== 0,:) = [];
 
 
 %% Validation function
