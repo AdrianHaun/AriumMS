@@ -32,7 +32,7 @@ hasBadBorder = initialPeakArray(:,3)-initialPeakArray(:,2) <= minPeakWidth;
 initialPeakArray(hasBadBorder,:) = [];
 
 %preallocate output
-correctedPeakArray = zeros(height(initialPeakArray),4);
+correctedPeakArray = ones(height(initialPeakArray),4);
 
 %scale chromatogram
 smoothedChromatogram = smoothedChromatogram./max(smoothedChromatogram);

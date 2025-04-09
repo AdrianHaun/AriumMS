@@ -189,9 +189,6 @@ scanDataMS2.precursorMass = str2double(precursorMass(idMS2));
 scanDataMS2.fragmentationEnergy = collisionEnergy(idMS2);
 scanDataMS2.fragmentationType = fragMethod(idMS2);
 
-%clean data
-[scanDataMS1,scanDataMS2] = cleanRawProfileScans(scanDataMS1,scanDataMS2);
-
 end
 
 %helper functions

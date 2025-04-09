@@ -46,7 +46,7 @@ classdef LCData < RawData
 
             progressBar.Message = "Loading files";
             %check if files already loaded then skip loading stage
-            test = obj.RawDataFileObj.centroidedDataMS1;
+            test = obj.RawDataFileObj.centroidDataMS1;
             if isempty(test{1,1}) || size([obj.fileName;obj.blankFile],1) ~= height(test)
                 obj = obj.readData(fileArray,obj.separationType);
             end
@@ -608,7 +608,7 @@ classdef LCData < RawData
 
         function outputStruct = gatherMS2Spectra(obj,outputStruct)
             %check if MSn data is already loaded
-            if isscalar(obj.RawDataFileObj.centroidedDataMS2)
+            if isscalar(obj.RawDataFileObj.centroidDataMS2)
                 obj = obj.readData(obj.dataFile,obj.separationType);
             end
 
@@ -622,7 +622,7 @@ classdef LCData < RawData
 
             timeArray = obj.RawDataFileObj.timeDataMS2;
             timeArray = vertcat(timeArray{:});
-            scanArray = obj.RawDataFileObj.centroidedDataMS2;
+            scanArray = obj.RawDataFileObj.centroidDataMS2;
             scanArray = vertcat(scanArray{:});
             precursor = obj.RawDataFileObj.molecularPrecursorMass;
             precursor = vertcat(precursor{:});
@@ -644,6 +644,7 @@ classdef LCData < RawData
                 foundScan(cellfun(@isempty, foundScan)) = [];
                 if numel(foundScan) >= 1
                     foundScan = alignSpectra(foundScan,"average","low","true");
+                    foundScan = cleanScans(foundScan,"threshold",0.05);
                 else % no found scan
                     foundScan = [];
                 end

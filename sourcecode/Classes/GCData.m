@@ -16,7 +16,7 @@ classdef GCData < RawData
             % set default parameters
             obj.withinFileMassTolerance = 0.1;
             obj.withinFileMassUnit = "Da";
-            obj.roiMinOccurence = 10;
+            obj.roiMinOccurrence = 10;
             obj.peakMinWidth = 0.8;
             obj.peakMaxWidth = 10;
             obj.betweenFileMassTolerance = 0.05;
@@ -57,8 +57,8 @@ classdef GCData < RawData
 
             progressBar.Message = "Loading files";
             %check if files already loaded then skip loading stage
-            test = obj.RawDataFileObj.centroidedDataMS1(1,1);
-            if isempty(test{1,1}) || size([obj.fileName;obj.blankFile],1) ~= size(obj.RawDataFileObj.centroidedDataMS1,1)
+            test = obj.RawDataFileObj.centroidDataMS1(1,1);
+            if isempty(test{1,1}) || size([obj.fileName;obj.blankFile],1) ~= size(obj.RawDataFileObj.centroidDataMS1,1)
                 obj = obj.readData(fileArray,obj.separationType);
             end
             clearvars test fileArray id

@@ -1,31 +1,44 @@
-function denoisedScans = denoiseScans(noisyScans)
-%% denoiseScans takes MS scans determines the noise level and sets noise to zero
+function cleanedScans = denoiseScans(rawScans,mode,cutOffValue)
+%% cleanScans takes MS scans determines the lowest intensities and removes them
 %
-% Sets each intensity below the cutoff value to zero. The cutoff value is 
-% determined by histogram bin counts using the upper edge of bin one. 
+% Removes each intensity below the cutoff value. The cutoff value is
+% determined by histogram bin counts using the upper edge of bin one.
 %
-% inputs: profileScans: cell array containing two column matrices, 
-%                    column1: mass; column 2: intensity 
+% inputs: rawScans: cell array containing two column matrices,
+%                    column1: mass; column 2: intensity
+%         mode: switches between variable mode (noise level is determined by histcounts)
+%               or threshold mode (cutoff value is set by the user)
+%         cutOffValue: user defined intensity cutoff when using threshold mode
 %
-% output: denoisedScans: denoised scans in the same format as the input
+% output: cleanedScans: cleaned scans in the same format as the input
 
 arguments
-    noisyScans (:,1) cell
+    rawScans    (:,1) cell
+    mode        (1,1) string {mustBeMember(mode,["variable","threshold"])} = "variable";
+    cutOffValue (1,1) double {mustBeFinite,mustBePositive} = 0.01
 end
 
-%preallocate output
-denoisedScans = cell(size(noisyScans));
+if isempty(rawScans)
+    cleanedScans = cell(0,1);
+    return
+end
 
-%calculate overall noise level
-ints = vertcat(noisyScans{:});
-[~,edges] = histcounts(ints(:,2));
-cutoff = edges(2); 
+cleanedScans = cell(size(rawScans));
 
-parfor nScan = 1:height(denoisedScans)
-    currentScan = noisyScans{nScan,1};
-    if isempty(currentScan)
-        continue
-    end
-    currentScan(currentScan(:,2) <= cutoff,2) = 0;
-    denoisedScans{nScan,1} = currentScan;
+switch mode
+    case "threshold"
+        cutoff = cutOffValue;
+    otherwise
+        %% determine over all intensity bins
+        ints = vertcat(rawScans{:});
+        [~,edges] = histcounts(ints(:,2));
+        cutoff = edges(2);
+end
+
+%% Clean Data
+parfor j = 1:height(cleanedScans)
+    data = rawScans{j,1};
+    idx = data(:,2) <= cutoff;
+    data(idx,:) = [];
+    cleanedScans{j,1} = data;
 end

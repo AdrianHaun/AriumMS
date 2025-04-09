@@ -194,10 +194,13 @@ classdef RawData
                 switch fileType
                     case "mzML"
                         [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzML_MSandMS2(dataFile{iFile});
+                        [DataMS1{iFile,1},DataMS2{iFile,1}] = cleanRawProfileScans(DataMS1{iFile,1},DataMS2{iFile,1});
                     case "mzXML"
                         [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzXML_MSandMS2(dataFile{iFile});
+                        [DataMS1{iFile,1},DataMS2{iFile,1}] = cleanRawProfileScans(DataMS1{iFile,1},DataMS2{iFile,1});
                     case "CDF"
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] =  readmzCDF(dataFile{iFile});
+                        [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzCDF(dataFile{iFile});
+                        [DataMS1{iFile,1},DataMS2{iFile,1}] = cleanRawProfileScans(DataMS1{iFile,1},DataMS2{iFile,1});
                 end
             end
             
@@ -208,13 +211,12 @@ classdef RawData
                         %centroid profile data
                         DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
                         % clean scans
-                        DataMS1{iFile,1}.centroidDataMS1 = cleanScans(DataMS1{iFile,1}.centroidDataMS1);
-                        DataMS1{iFile,1}.profileDataMS1 = cleanScans(DataMS1{iFile,1}.profileDataMS1);
+                        DataMS1{iFile,1}.centroidDataMS1 = denoiseScans(DataMS1{iFile,1}.centroidDataMS1,"variable");
 
                     otherwise
                         %convert MS1 and MS2 precursor to molecular mass
                         DataMS1{iFile,1}.profileDataMS1 = convertScans2MolecularMass(DataMS1{iFile,1}.profileDataMS1,DataMS1{iFile,1}.polarityMS1);
-
+                        DataMS2{iFile,1}.profileDataMS2 = convertScans2MolecularMass(DataMS2{iFile,1}.profileDataMS2,DataMS2{iFile,1}.polarityMS2);
                         precursors = DataMS2{iFile,1}.precursorMass;
                         modifier = ones(size(precursors))*1.007825;
                         idx = DataMS2{iFile,1}.polarityMS2 == "+";
@@ -224,28 +226,27 @@ classdef RawData
                         %centroid profile data
                         DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
                         %clean scans
-                        DataMS1{iFile,1}.centroidDataMS1 = cleanScans(DataMS1{iFile,1}.centroidDataMS1);
-                        DataMS1{iFile,1}.profileDataMS1 = cleanScans(DataMS1{iFile,1}.profileDataMS1);
+                        DataMS1{iFile,1}.centroidDataMS1 = denoiseScans(DataMS1{iFile,1}.centroidDataMS1,"variable");
 
                         %compress MS2 data and store
                         DataMS2{iFile,1}.centroidDataMS2 = centroidScans(DataMS2{iFile,1}.profileDataMS2);
                         DataMS2{iFile,1}.centroidDataMS2 = normalizeScans(DataMS2{iFile,1}.centroidDataMS2);
-                        DataMS2{iFile,1}.centroidDataMS2 = cleanScans(DataMS2{iFile,1}.centroidDataMS2);
+                        DataMS2{iFile,1}.centroidDataMS2 = denoiseScans(DataMS2{iFile,1}.centroidDataMS2,"variable");
                 end
             end
             %store data
             %MS1 data
             DataMS1 = vertcat(DataMS1{:});
             obj.RawDataFileObj.profileDataMS1 = {DataMS1.profileDataMS1}';
-            obj.RawDataFileObj.centroidedDataMS1 = {DataMS1.centroidDataMS1}';
+            obj.RawDataFileObj.centroidDataMS1 = {DataMS1.centroidDataMS1}';
             obj.RawDataFileObj.timeDataMS1 = {DataMS1.timeDataMS1}';
             obj.RawDataFileObj.polarityMS1 = {DataMS1.polarityMS1}';
 
             %check for empty MS2 data
             DataMS2 = vertcat(DataMS2{:});
-            if ~isscalar(vertcat(DataMS2(:).profileDataMS2))
+            if ~isempty(vertcat(DataMS2(:).profileDataMS2))
                 obj.RawDataFileObj.profileDataMS2 = {DataMS2.profileDataMS2}';
-                obj.RawDataFileObj.centroidedDataMS2 = {DataMS2.centroidDataMS2}';
+                obj.RawDataFileObj.centroidDataMS2 = {DataMS2.centroidDataMS2}';
                 obj.RawDataFileObj.timeDataMS2 = {DataMS2.timeDataMS2}';
                 obj.RawDataFileObj.polarityMS2 = {DataMS2.polarityMS2}';
                 obj.RawDataFileObj.precursorMass = {DataMS2.precursorMass}';
@@ -525,7 +526,7 @@ classdef RawData
             %% removes scans outside specified time range and initializes TempDataFileObj
             START_TIME = obj.measurementStartTime;
             END_TIME = obj.measurementEndTime;
-            tempPeakData = obj.RawDataFileObj.centroidedDataMS1;
+            tempPeakData = obj.RawDataFileObj.centroidDataMS1;
             tempTimeData = obj.RawDataFileObj.timeDataMS1;
 
             parfor iFile = 1:size(tempPeakData,1)
@@ -822,8 +823,8 @@ classdef RawData
                 idToRemoveNew = IntResults(iFeature).peakStartLocation>=IntResults(iFeature).peakEndLocation;
                 idxToRemove = idxToRemove | idToRemoveNew;
 
-                %remove peaks with height = 0
-                idToRemoveNew = IntResults(iFeature).peakHeight == 0;
+                %remove peaks with height = 1 (no peak location was found)
+                idToRemoveNew = IntResults(iFeature).peakHeight == 1;
                 idxToRemove = idxToRemove | idToRemoveNew;
 
                 %remove peaks with bad Peak asymmetry
@@ -856,7 +857,6 @@ classdef RawData
             end
 
             %calculate peak entropy and filter after first filter round
-            % possible wrong peak bounderies causes errors
             IntResults = obj.calculatePeakEntropy(IntResults);
 
             %determine entropy bins
@@ -1010,12 +1010,12 @@ classdef RawData
             obj.RawDataFileObj.previewTimes = {[]};
 
             obj.RawDataFileObj.profileDataMS1 = {[]};
-            obj.RawDataFileObj.centroidedDataMS1 = {[]};
+            obj.RawDataFileObj.centroidDataMS1 = {[]};
             obj.RawDataFileObj.timeDataMS1 = {[]};
             obj.RawDataFileObj.polarityMS1 = {[]};
 
             obj.RawDataFileObj.profileDataMS2 = {[]};
-            obj.RawDataFileObj.centroidedDataMS2 = {[]};
+            obj.RawDataFileObj.centroidDataMS2 = {[]};
             obj.RawDataFileObj.timeDataMS2 = {[]};
             obj.RawDataFileObj.polarityMS2 = {[]};
             obj.RawDataFileObj.precursorMass = {[]};
@@ -1278,12 +1278,12 @@ classdef RawData
 
         function IntegrationStruct = calculatePeakEntropy(IntegrationStruct)
             % Calculates Peak entropy for all peaks
-            for iFeature = 1:length(IntegrationStruct)
+            parfor iFeature = 1:length(IntegrationStruct)
                 %check for no peaks, then skip iteration
                 if ~isempty(IntegrationStruct(iFeature).peakStartLocation)
                     derivativ = diff(IntegrationStruct(iFeature).XIC(:,2));
                     probability = zeros(size(IntegrationStruct(iFeature).peakLocation));
-                    parfor iPeak = 1:numel(probability)
+                    for iPeak = 1:numel(probability)
                         %extract peak range
                         Peak = derivativ(IntegrationStruct(iFeature).peakStartLocation(iPeak,:):IntegrationStruct(iFeature).peakEndLocation(iPeak,:));
                         maxidx = IntegrationStruct(iFeature).peakLocation(iPeak)-IntegrationStruct(iFeature).peakStartLocation(iPeak);
@@ -1407,17 +1407,10 @@ classdef RawData
                 spectra(cellfun(@isempty,spectra)) = [];
 
                 % clean scans
-                for jSpectrum = 1:width(spectra)
-                    data = spectra{1,jSpectrum}{:};
-                    if isempty(data)
-                        continue
-                    end
-                    idx = data(:,2) < 0.05;
-                    data(idx,:) = [];
-                    spectra{1,jSpectrum} = data;
-                end
+                spectra = denoiseScans(spectra,"threshold",0.025);
 
                 alingedSpectra = alignSpectra(spectra,"normal","low","true");
+                
                 compoundScores = scoresWithinSet(alingedSpectra);
                 % rebuild original file
                 for jFile = 1:numel(originalFileID)
