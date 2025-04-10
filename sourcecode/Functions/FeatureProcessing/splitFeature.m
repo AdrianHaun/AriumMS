@@ -54,7 +54,7 @@ end
 FeatureIn.peakHeights(idToSplit) = NaN;
 FeatureIn.peakAreas(idToSplit) = NaN;
 FeatureIn.peakLocations(idToSplit) = NaN;
-FeatureIn.peakBorders(:,idToSplit) = NaN(2,1);
+FeatureIn.peakBorders(:,idToSplit) = NaN(2,numel(idToSplit));
 FeatureIn.retentionTimes(idToSplit) = NaN;
 FeatureIn.signal2Noise(idToSplit) = NaN;
 FeatureIn.entropy(idToSplit) = NaN;

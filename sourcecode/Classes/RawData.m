@@ -90,8 +90,9 @@ classdef RawData
         % processing variables
         nScan              (:,1) double {mustBeInteger,mustBePositive}
         nScanPadded        (:,1) double {mustBeInteger,mustBePositive}
+        occurenceFiltered  (1,1) double {mustBeInteger} = 0
         %FileInfos
-        DataInfo            (1,:) struct
+        DataInfo             (1,:) struct
         scanFrequencySecond  (1,1) double
         %IS Data
         interalStandardIntensity    (:,:) double
@@ -266,9 +267,10 @@ classdef RawData
             N_BLANK = numel(obj.blankFile);
             roiCell = obj.TempDataFileObj.roiCells;
             timeCell = obj.TempDataFileObj.timeCells;
-            maxScan = max(obj.nScan);
+            MAX_SCAN = max(obj.nScan);
+
             blankFiles = vertcat(roiCell{end-N_BLANK+1:end});
-            blankFiles = reshape(blankFiles,maxScan,size(blankFiles,2),N_BLANK);
+            blankFiles = reshape(blankFiles,MAX_SCAN,size(blankFiles,2),N_BLANK);
             blankFiles = mean(blankFiles,3);
             blankTimes = horzcat(timeCell{end-N_BLANK+1:end});
             %replace 0 with NaN then ignore NaN in median calculation
@@ -775,25 +777,22 @@ classdef RawData
             end
         end
 
-        function OutputStruct = groupAndSampleScaling(obj,InputStruct)
+        function OutputStruct = groupAndSampleScaling(obj,FeatureStruct)
             %% applies group and sample scaling to final output struct
 
             GROUP_SCALING_FACTORS = obj.groupScale;
             SAMPLE_SCALING_FACTORS = obj.sampleScale';
 
-            OutputStruct = InputStruct;
-            features = InputStruct.feature;
-
             if InputStruct.dataSize > 0
-                parfor iFeature = 1:length(features)
+                parfor iFeature = 1:length(FeatureStruct)
                     %GroupScale
-                    features(iFeature).peakHeights = features(iFeature).peakHeights/GROUP_SCALING_FACTORS;
-                    features(iFeature).peakAreas = features(iFeature).peakAreas/GROUP_SCALING_FACTORS;
+                    FeatureStruct(iFeature).peakHeights = FeatureStruct(iFeature).peakHeights/GROUP_SCALING_FACTORS;
+                    FeatureStruct(iFeature).peakAreas = FeatureStruct(iFeature).peakAreas/GROUP_SCALING_FACTORS;
                     %SampleScale
-                    features(iFeature).peakHeights = features(iFeature).peakHeights./SAMPLE_SCALING_FACTORS;
-                    features(iFeature).peakAreas = features(iFeature).peakAreas./SAMPLE_SCALING_FACTORS;
+                    FeatureStruct(iFeature).peakHeights = FeatureStruct(iFeature).peakHeights./SAMPLE_SCALING_FACTORS;
+                    FeatureStruct(iFeature).peakAreas = FeatureStruct(iFeature).peakAreas./SAMPLE_SCALING_FACTORS;
                 end
-                OutputStruct.feature = features;
+                OutputStruct = FeatureStruct;
             end
         end
 
@@ -901,9 +900,9 @@ classdef RawData
 
         end
 
-        function OutputStruct = findOriginalMassScans(obj,InputStruct)
+        function OutputStruct = findOriginalMassScans(obj,FeatureStruct)
             %% gathers MS1 spectra for each feature and aligns them
-            OutputStruct = InputStruct;
+            OutputStruct = FeatureStruct;
             allScans = obj.RawDataFileObj.profileDataMS1;
             % append all scans with spacers in between, to match processing
             % indices
@@ -915,9 +914,9 @@ classdef RawData
             allScans = vertcat(allScans{:});
             nFile = numel(obj.dataFile);
 
-            parfor iScan = 1: length(InputStruct)
+            parfor iScan = 1: length(FeatureStruct)
                 spectra = cell(1,nFile);
-                location = InputStruct(iScan).peakLocations;
+                location = FeatureStruct(iScan).peakLocations;
 
                 for jFile = 1:nFile
                     %check if borders contain NaN then skip iteration
@@ -939,11 +938,10 @@ classdef RawData
             end
         end
 
-        function Output = occurrenceFilterFeatures(obj,Output)
+        function [Output,sumFiltered] = occurrenceFilterFeatures(obj,FeatureStruct)
             %% remove features with less peaks than required minimum from Output struct
             nFile = numel(obj.dataFile);
             minDataPoints = ceil(nFile*obj.minOccurence);
-            FeatureStruct = Output.feature;
             numElements = zeros(length(FeatureStruct),1);
 
             for iFeature = 1:length(FeatureStruct)
@@ -952,24 +950,55 @@ classdef RawData
             idToRemove = numElements < minDataPoints;
 
             %sum number of removed peaks
-            Output.occurenceFiltered = sum(numElements(idToRemove),"all");
+            sumFiltered = sum(numElements(idToRemove),"all");
             FeatureStruct(idToRemove) = [];
 
-            Output.feature = FeatureStruct;
+            Output = FeatureStruct;
+        end
+        
+        function Output = initializeOutputStruct(obj,IntegrationData)
+            %preallocate Output struct
+            Output = struct(...
+                "feature",[],...
+                "minWidthFiltered",[],...
+                "maxWidthFiltered",[],...
+                "entropyFiltered",[],...
+                "signal2NoiseFiltered",[],...
+                "occurrenceFiltered",[],...
+                "groupName",string,...
+                "fileNames",string,...
+                "dataSize",[],...
+                "separationType",string);
+
+            %store group infos
+            Output.minWidthFiltered = sum(vertcat(IntegrationData(:).minWidthFiltered));
+            Output.maxWidthFiltered = sum(vertcat(IntegrationData(:).maxWidthFiltered));
+            Output.entropyFiltered = sum(vertcat(IntegrationData(:).entropyFiltered));
+            Output.signal2NoiseFiltered = sum(vertcat(IntegrationData(:).signal2NoiseFiltered));
+
+            Output.fileNames = obj.fileName;
+            Output.groupName = obj.groupName;
+            Output.separationType = obj.separationType;
+
         end
 
-        function Output = finalizeFeatureOutput(obj,Output)
+        function Output = finalizeOutputStruct(obj,Output,featureStruct)
             %% finalizes feature Output Struct
             % fills remaining fields: dataSize, featID
             % rounds retentionTime
             % not yet implemented: formula, adduct type, corrected mass
+            
+            Output.dataSize = length(featureStruct);
+            Output.occurrenceFiltered = obj.occurenceFiltered;
 
-            Output.dataSize = length(Output.feature);
             %build average RetentionTime and featureID
             for iFeat = 1:Output.dataSize
-                Output.feature(iFeat).retentionTime = mean(Output.feature(iFeat).retentionTimes,"all","omitmissing");
-                Output.feature(iFeat).featID = Output.feature(iFeat).mass_measured + "Da@" + Output.feature(iFeat).retentionTime + "s_" + obj.groupName;
+                %build retention time
+                featureStruct(iFeat).retentionTime = mean(featureStruct(iFeat).retentionTimes,"all","omitmissing");
+                %build feature ID string
+                featureStruct(iFeat).featID = featureStruct(iFeat).mass_measured + "Da@" + featureStruct(iFeat).retentionTime + "s_" + obj.groupName;
             end
+            Output.feature = featureStruct;
             % separation Type specific tasks
 
             switch Output.separationType
@@ -1366,7 +1395,7 @@ classdef RawData
             end
         end
 
-        function integrationStruct = finalizeIntegrationOutput(integrationStruct,times)
+        function integrationStruct = integratePeaks(integrationStruct,times)
             %% Performs Integration of found Peaks and gathers retention times
             % get peak area and final retention time
 
@@ -1379,6 +1408,7 @@ classdef RawData
                 eic = full(integrationStruct(iFeature).XIC);
                 areas = zeros(size(integrationStruct(iFeature).peakLocation));
                 for jPeak = 1:numel(areas)
+                    %gather peak area
                     areas(jPeak,1) = trapz(eic(integrationStruct(iFeature).peakStartLocation(jPeak,1):integrationStruct(iFeature).peakEndLocation(jPeak,1)));
                 end
                 integrationStruct(iFeature).peakArea = areas;
@@ -1386,11 +1416,37 @@ classdef RawData
             end
         end
 
-        function Output = confirmSameFeatureByMS2(Output)
+        function FeatureStruct = trimExtractedIonChromatograms(FeatureStruct)
+            %% Trims the stored XIC to the location of the corresponding peak
+            % 
+            nFile = width(FeatureStruct(1).peakLocations);
+            allXic = {FeatureStruct.XIC}';
+            allBorders = {FeatureStruct.peakBorders}';
+            %preallocation
+            trimedXIC = cell(length(FeatureStruct),nFile);
+
+            parfor iFeat = 1:length(FeatureStruct)
+                currentXIC = allXic{iFeat};
+                currentBorders = allBorders{iFeat};
+                for jFile = 1:nFile
+                    %check for empty peak
+                    if ~isnan(currentBorders(1,jFile))
+                        trimedXIC{iFeat,jFile} = full(currentXIC(currentBorders(1,jFile):currentBorders(2,jFile),:));
+                    else
+                        continue
+                    end
+                end
+            end
+            %store
+            for iFeat = 1:length(FeatureStruct)
+                FeatureStruct(iFeat).XIC = trimedXIC(iFeat,:);
+            end
+        end
+
+        function FeatureStruct = confirmSameFeatureByMS2(FeatureStruct)
             %% calculates the composit score within each feature
             % features with scores < 650 are split into a new feature
 
-            FeatureStruct = Output.feature;
             nFeat = length(FeatureStruct);
             
             MINIMUM_SCORE = 650;
@@ -1424,23 +1480,22 @@ classdef RawData
                     idtoKeep = unique(idtoKeep);
                     idtoSplit = compoundScores(compoundScores(:,1) < MINIMUM_SCORE,2:3);
                     idtoSplit = unique(idtoSplit);
-                    id = any(idtoSplit == idtoKeep,1);
-                    idtoSplit(id) = [];
-
+                    
                     %check number of Peaks to remove
-                    if isempty(idtoSplit)       %none, because of overlap
-                        continue
-                    elseif isempty(idtoKeep)    %all, keep first entry remove the rest
+                    if isempty(idtoKeep) %all, keep first entry remove the rest
                         idtoSplit(1) = [];
+                    elseif isempty(idtoSplit) %none, because of overlap
+                        continue
+                    else %some
+                        id = any(idtoSplit == idtoKeep,1);
+                        idtoSplit(id) = [];
                     end
-
-                    splitFeatures = SplitFeature(FeatureStruct(iFeat),idtoSplit);
+                    splitFeatures = splitFeature(FeatureStruct(iFeat),idtoSplit);
                     %append
                     FeatureStruct(iFeat) = splitFeatures(1);
                     FeatureStruct = [FeatureStruct;splitFeatures(2:end)];
                 end
             end
-            Output.feature = FeatureStruct;
         end
 
         function Output = confirmSameFeatureByIsotopeDistribution(Output)

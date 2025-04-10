@@ -187,33 +187,33 @@ classdef LCData < RawData
             progressBar.Message = "Processing found Features";
             IntegrationData = obj.assignFileID(IntegrationData);
             IntegrationData = obj.fileSortPeaks(IntegrationData);
-
+            
+            
             %%%%%%%
             % % remove adducts
             % if obj.useAdductFilter == true
             %     [IntegrationData,obj] = obj.filterAdducts(IntegrationData);
             % end
             %%%%%%%
+            
+            % build output Struct and store number of removed peaks per
+            % filter
+            Output = obj.initializeOutputStruct(IntegrationData);
 
-
-            % Build Storage Arrays and filter by number of occurences
-            [Output,obj] = obj.buildFeatureArray(IntegrationData);
-
+            % Build Storage Arrays and filter by number of occurrences
+            [FeatureData,obj] = obj.buildFeatureArray(IntegrationData);
+            clearvars IntegrationData IDX
             %
-            % Output = obj.ConfirmSameFeatureByIsotopeDistribution(Output);
-
-            % Occurrence filter
-            Output = obj.occurrenceFilterFeatures(Output);
-
-            %gather MS2 spectra
-            Output = obj.gatherMS2Spectra(Output);
-
-            %fill remaining fields
-            Output = obj.finalizeFeatureOutput(Output);
+            % FeatureData = obj.ConfirmSameFeatureByIsotopeDistribution(FeatureData);
 
             % apply scaling
-            progressBar.Message = "Apply scaling";
-            Output = obj.groupAndSampleScaling(Output);
+            if obj.useScaling == true
+                progressBar.Message = "Apply scaling";
+                FeatureData = obj.groupAndSampleScaling(FeatureData);
+            end
+
+            %fill remaining fields
+            Output = obj.finalizeOutputStruct(Output,FeatureData); 
 
             progressBar.Message = "Group processing successful";
             progressBar.Value = 1;
@@ -435,39 +435,17 @@ classdef LCData < RawData
             %filter found peaks
             noise = std(roiMat-smoothed);
             IntegrationResults = obj.filterPeaksFromIntegration(IntegrationResults,noise);
-            IntegrationResults = obj.finalizeIntegrationOutput(IntegrationResults,timeArray);
+            IntegrationResults = obj.integratePeaks(IntegrationResults,timeArray);
         end
 
 
 
-        function [Output,obj] = buildFeatureArray(obj,IntegrationResults,varargin)
+        function [FeatureResults,obj] = buildFeatureArray(obj,IntegrationResults,varargin)
 
-            %preallocate Output struct
-            Output = struct(...
-                "feature",[],...
-                "minWidthFiltered",[],...
-                "maxWidthFiltered",[],...
-                "entropyFiltered",[],...
-                "signal2NoiseFiltered",[],...
-                "occurenceFiltered",[],...
-                "groupName",string,...
-                "fileNames",string,...
-                "dataSize",[],...
-                "separationType",string);
-
-            Output.fileNames = obj.fileName;
-            Output.groupName = obj.groupName;
-            Output.separationType = obj.separationType;
+            FeatureResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
             %check for empty IntegrationResults
             if ~isempty(IntegrationResults)
-                %store group infos
-                Output.minWidthFiltered = sum(vertcat(IntegrationResults(:).minWidthFiltered));
-                Output.maxWidthFiltered = sum(vertcat(IntegrationResults(:).maxWidthFiltered));
-                Output.entropyFiltered = sum(vertcat(IntegrationResults(:).entropyFiltered));
-                Output.signal2NoiseFiltered = sum(vertcat(IntegrationResults(:).signal2NoiseFiltered));
-
-                %remove unnecessary fields from input struct
-                IntegrationResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
+                
                 nFiles = numel(obj.fileName);
 
                 EmptyStruct = struct(...
@@ -489,7 +467,7 @@ classdef LCData < RawData
                     "spectrumMS2",cell(1),...
                     "asymmetry",[]);
 
-                storedFeatures = cell(length(IntegrationResults),1);
+                storedFeatures = cell(length(FeatureResults),1);
 
                 %gather tolerances
                 timeTolerance = obj.peakTimeTolerance;
@@ -502,24 +480,24 @@ classdef LCData < RawData
 
                 %match features and store in feature struct
 
-                parfor iFeature = 1:length(IntegrationResults)
+                parfor iFeature = 1:length(FeatureResults)
                     currentFeatureStruct = EmptyStruct;
-                    currentFeatureStruct.mass_measured = IntegrationResults(iFeature).mass;
-                    currentFeatureStruct.XIC = IntegrationResults(iFeature).XIC;
+                    currentFeatureStruct.mass_measured = FeatureResults(iFeature).mass;
+                    currentFeatureStruct.XIC = FeatureResults(iFeature).XIC;
 
-                    nPeaks = numel(vertcat(IntegrationResults(iFeature).peakLocation{:}));
+                    nPeaks = numel(vertcat(FeatureResults(iFeature).peakLocation{:}));
 
                     %unpack data
                     peakData = zeros(nPeaks,10);
-                    peakData(:,1) = vertcat(IntegrationResults(iFeature).peakLocation{:});
-                    peakData(:,2) = vertcat(IntegrationResults(iFeature).peakRetentionTime{:});
-                    peakData(:,3) = vertcat(IntegrationResults(iFeature).peakStartLocation{:});
-                    peakData(:,4) = vertcat(IntegrationResults(iFeature).peakEndLocation{:});
-                    peakData(:,5) = vertcat(IntegrationResults(iFeature).peakHeight{:});
-                    peakData(:,6) = vertcat(IntegrationResults(iFeature).peakArea{:});
-                    peakData(:,7) = vertcat(IntegrationResults(iFeature).entropy{:});
-                    peakData(:,8) = vertcat(IntegrationResults(iFeature).signal2Noise{:});
-                    peakData(:,9) = vertcat(IntegrationResults(iFeature).fileID{:});
+                    peakData(:,1) = vertcat(FeatureResults(iFeature).peakLocation{:});
+                    peakData(:,2) = vertcat(FeatureResults(iFeature).peakRetentionTime{:});
+                    peakData(:,3) = vertcat(FeatureResults(iFeature).peakStartLocation{:});
+                    peakData(:,4) = vertcat(FeatureResults(iFeature).peakEndLocation{:});
+                    peakData(:,5) = vertcat(FeatureResults(iFeature).peakHeight{:});
+                    peakData(:,6) = vertcat(FeatureResults(iFeature).peakArea{:});
+                    peakData(:,7) = vertcat(FeatureResults(iFeature).entropy{:});
+                    peakData(:,8) = vertcat(FeatureResults(iFeature).signal2Noise{:});
+                    peakData(:,9) = vertcat(FeatureResults(iFeature).fileID{:});
                     peakData(:,10) = (peakData(:,4)-peakData(:,1))./(peakData(:,1)-peakData(:,3)); %asymmetry factor
 
                     % preallocate current feature Storage
@@ -600,18 +578,22 @@ classdef LCData < RawData
                 if isISIntegration == false
                     %gather original scans
                     storedFeatures = obj.findOriginalMassScans(storedFeatures);
+                    % Occurrence filter
+                    [storedFeatures,obj.occurenceFiltered] = obj.occurrenceFilterFeatures(storedFeatures);
+                    storedFeatures = obj.trimExtractedIonChromatograms(storedFeatures);
+                    storedFeatures = obj.gatherMS2Spectra(storedFeatures);
                 end
-
-                Output.feature = storedFeatures;
+                
+                FeatureResults = storedFeatures;
             else
-                Output.feature = IntegrationResults;
+                FeatureResults = IntegrationResults;
             end
         end
 
-        function outputStruct = gatherMS2Spectra(obj,outputStruct)
-            %check if MSn data is already loaded
+        function outputStruct = gatherMS2Spectra(obj,FeatureStruct)
+            %check if MSn data exists, skip if not
             if isscalar(obj.RawDataFileObj.centroidDataMS2)
-                obj = obj.readData(obj.dataFile,obj.separationType);
+                return
             end
 
             %%%%%
@@ -621,7 +603,6 @@ classdef LCData < RawData
             TIMETOLERANCE = 10;
             %%%%%%
 
-
             timeArray = obj.RawDataFileObj.timeDataMS2;
             timeArray = vertcat(timeArray{:});
             scanArray = obj.RawDataFileObj.centroidDataMS2;
@@ -629,30 +610,32 @@ classdef LCData < RawData
             precursor = obj.RawDataFileObj.molecularPrecursorMass;
             precursor = vertcat(precursor{:});
 
-            featureArray = outputStruct.feature;
-
-            parfor iFeature = 1:length(featureArray)
+            parfor iFeature = 1:length(FeatureStruct)
                 idMass = [];
                 switch MASSUNIT
                     case "Da"
-                        idMass = abs(precursor-featureArray(iFeature).mass_measured) <= MASSTOLERANCE;
+                        idMass = abs(precursor-FeatureStruct(iFeature).mass_measured) <= MASSTOLERANCE;
                     case "ppm"
-                        idMass = abs(precursor-featureArray(iFeature).mass_measured)./featureArray(iFeature).mass_measured*10^6 <= MASSTOLERANCE;
+                        idMass = abs(precursor-FeatureStruct(iFeature).mass_measured)./FeatureStruct(iFeature).mass_measured*10^6 <= MASSTOLERANCE;
                 end
-                idTime = abs(timeArray-featureArray(iFeature).retentionTime) <= TIMETOLERANCE;
+                idTime = abs(timeArray-FeatureStruct(iFeature).retentionTime) <= TIMETOLERANCE;
                 id = idTime & idMass;
                 foundScan = scanArray(id);
                 %remove possible empty scans
                 foundScan(cellfun(@isempty, foundScan)) = [];
                 if numel(foundScan) >= 1
                     foundScan = alignSpectra(foundScan,"average","low","true");
-                    foundScan = cleanScans(foundScan,"threshold",0.05);
+                    foundScan = denoiseScans({foundScan},"threshold",0.05);
+                    foundScan = foundScan{:};
+                    %remove masses > precursor mass
+                    highMassId = foundScan(:,1) > FeatureStruct(iFeature).mass_measured;
+                    foundScan(highMassId,:) = [];
                 else % no found scan
                     foundScan = [];
                 end
-                featureArray(iFeature).spectrumMS2 = foundScan;
+                FeatureStruct(iFeature).spectrumMS2 = foundScan;
             end
-            outputStruct.feature = featureArray;
+            outputStruct = FeatureStruct;
         end
     end
 end

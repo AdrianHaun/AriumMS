@@ -25,7 +25,7 @@ classdef GCData < RawData
 
 
         %% Data Processing
-        function [outputFeatureStruct,obj] = extractFeaturesFromMassData(obj,varargin)
+        function [Output,obj] = extractFeaturesFromMassData(obj,varargin)
 
             %check if old results exist and delete them
             if isfile(obj.ROIDataFile)
@@ -183,31 +183,33 @@ classdef GCData < RawData
             IntegrationData = obj.assignFileID(IntegrationData);
             IntegrationData = obj.fileSortPeaks(IntegrationData);
             IntegrationData = obj.mergeDuplicatePeaksWithinFile(IntegrationData);
-
+            
+            Output = obj.initializeOutputStruct(IntegrationData);
             % Build Storage Arrays
-            outputFeatureStruct = obj.buildFeatureArray(IntegrationData);
+            FeatureData = obj.buildFeatureArray(IntegrationData);
 
             % confirm same feature by MS2 comparison
-            outputFeatureStruct = obj.confirmSameFeatureByMS2(outputFeatureStruct);
+            FeatureData = obj.confirmSameFeatureByMS2(FeatureData);
 
             % Occurrence filter
-            outputFeatureStruct = obj.occurrenceFilterFeatures(outputFeatureStruct);
+            [FeatureData,obj.occurenceFiltered] = obj.occurrenceFilterFeatures(FeatureData);
 
             %build average EI (MS2) spectrum
-            outputFeatureStruct.feature = obj.finalizeEISpectra(outputFeatureStruct.feature);
-
-            %fill remaining fields
-            outputFeatureStruct = obj.finalizeFeatureOutput(outputFeatureStruct);
+            FeatureData = obj.finalizeEISpectra(FeatureData);
             progressBar.Value = 0.95;
 
             %apply scaling
-            progressBar.Message = "Apply scaling";
-            outputFeatureStruct = obj.groupAndSampleScaling(outputFeatureStruct);
+            if obj.useScaling == true
+                progressBar.Message = "Apply scaling";
+                FeatureData = obj.groupAndSampleScaling(FeatureData);
+            end
 
+            %fill remaining fields
+            Output = obj.finalizeOutputStruct(Output,FeatureData); 
             progressBar.Message = "Group processing successful";
             progressBar.Value = 1;
             
-            obj.Output = outputFeatureStruct;
+            obj.Output = Output;
 
             %post processing cleanup
             if ~exist("mode","var") %save results if batch mode
@@ -270,7 +272,7 @@ classdef GCData < RawData
             IntegrationResults = obj.filterPeaksFromIntegration(IntegrationResults,noise);
             % entropy calculation
             IntegrationResults = obj.calculatePeakEntropy(IntegrationResults);
-            IntegrationResults = obj.finalizeIntegrationOutput(IntegrationResults,currentTime);
+            IntegrationResults = obj.integratePeaks(IntegrationResults,currentTime);
         end
 
         function [IntResults,obj] = gatherEISpectra(obj,IntResults)
@@ -400,30 +402,8 @@ classdef GCData < RawData
             end
         end
 
-        function output = buildFeatureArray(obj,IntegrationResults,varargin)
+        function FeatureData = buildFeatureArray(obj,IntegrationResults,varargin)
             nFiles = numel(obj.fileName);
-
-            %preallocate Output struct
-            output = struct(...
-                "feature",[],...
-                "minWidthFiltered",[],...
-                "maxWidthFiltered",[],...
-                "entropyFiltered",[],...
-                "signal2NoiseFiltered",[],...
-                "occurenceFiltered",[],...
-                "groupName",string,...
-                "fileNames",string,...
-                "dataSize",[],...
-                "separationType",string);
-
-            %store group info
-            output.minWidthFiltered = IntegrationResults(1).minWidthFiltered;
-            output.maxWidthFiltered = IntegrationResults(1).maxWidthFiltered;
-            output.entropyFiltered = IntegrationResults(1).entropyFiltered;
-            output.signal2NoiseFiltered = IntegrationResults(1).signal2NoiseFiltered;
-            output.fileNames = obj.fileName;
-            output.groupName = obj.groupName;
-            output.separationType = obj.separationType;
 
             xicData = IntegrationResults(1).XIC;
 
@@ -573,7 +553,7 @@ classdef GCData < RawData
                 featureStruct = obj.findOriginalMassScans(featureStruct);
             end
 
-            output.feature = featureStruct;
+            FeatureData = featureStruct;
         end
 
     end

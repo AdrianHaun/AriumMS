@@ -7,11 +7,14 @@ cleanedDataMS1 = rawDataMS1;
 %clean MS1
 % set noise to 0
 cleanedDataMS1.profileDataMS1 = denoiseScans(rawDataMS1.profileDataMS1,"variable");
-%remove empty scans
-emptyScans = cellfun(@isempty, cleanedDataMS1.profileDataMS1);
-cleanedDataMS1.profileDataMS1(emptyScans,:) = [];
-cleanedDataMS1.timeDataMS1(emptyScans,:) = [];
-cleanedDataMS1.polarityMS1(emptyScans,:) = [];
+%remove scans with only one or no mass
+toRemove = cellfun(@numel, cleanedDataMS1.profileDataMS1)-1 <= 1;
+
+cleanedDataMS1.profileDataMS1(toRemove,:) = [];
+cleanedDataMS1.timeDataMS1(toRemove,:) = [];
+if ~isempty(cleanedDataMS1.polarityMS1)
+    cleanedDataMS1.polarityMS1(toRemove,:) = [];
+end
 
 %% clean MS2
 if nargin == 2
