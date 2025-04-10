@@ -35,11 +35,16 @@ switch resolution
         mzerror = 0.10;
 end
 
+%remove empty cells
+spectraCells(cellfun(@isempty,spectraCells)) = [];
+
 if isscalar(spectraCells) %only one spectra-> just unpack
     alignedSpectra = spectraCells{1,1};
 
 else %align scans using ROI
+    %build synthetic time vector
     times = 1:numel(spectraCells);
+    % align
     [mzroi,MSroi,~] = ROIpeaks3(spectraCells,0,mzerror,"Da",1,times);
 
     if strcmp("average",mode)

@@ -76,8 +76,9 @@ classdef GCData < RawData
 
             %remove scans outside RT range
             obj = obj.cutScansToSize;
-            progressBar.Value = 0.33;
             obj.nScan = cellfun(@numel,obj.TempDataFileObj.TimeCells);
+            progressBar.Value = 0.33;
+
             if obj.useMassAlign == true
                 progressBar.Message = "Aligning MS Scans";
                 obj = obj.alignMasses("batch");
@@ -153,22 +154,22 @@ classdef GCData < RawData
             % BLK Subtraction after IS Correction
             if obj.useBlankSubtraction == true && obj.internalStandardOrder == "ISBlank"
                 progressBar.Message = "Subtracting Blank";
-                roiDataFile = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScansPadded);
+                roiDataFile = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
                 roiDataBlank = obj.TempDataFileObj.ROIMatBLK;
                 parfor iFile = 1:size(roiDataFile,1)
                     roiDataFile{iFile,1} = roiDataFile{iFile,1}-padarray(roiDataBlank,size(roiDataFile{iFile,1},1)-size(roiDataBlank,1),0,'post');
                 end
                 roiDataFile = vertcat(roiDataFile{:});
                 roiDataFile = max(roiDataFile,0);
-                id = all(roiDataFile >= obj.thresh,1);
+                id = all(roiDataFile >= obj.roiThreshold,1);
                 obj.TempDataFileObj.ROIMat = roiDataFile(:,id);
                 obj.TempDataFileObj.ROImzVec(:,~id) = [];
                 progressBar.Value = progressBar.Value + 0.05;
             end
             % mass correction
-            if obj.MassCal == true && ~isempty(obj.ISValue)
+            if obj.useInternalStandard == true && ~isempty(obj.interalStandardIntensity)
                 progressBar.Message = "Performing IS mass correction";
-                obj = obj.useISMassCorrection;
+                obj = obj.massCorrectionByInternalStandard;
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
@@ -247,7 +248,6 @@ classdef GCData < RawData
 
             %prepare TIC Data
             tics = sum(obj.TempDataFileObj.ROIMat,2);
-            %tics = mat2cell(tics,obj.nScansPadded);
             times = obj.TempDataFileObj.timeVec;
             IntegrationResults.XIC = [times,tics];
             %gather parameters
@@ -496,29 +496,25 @@ classdef GCData < RawData
                         continue
 
                     elseif sum(idx) == 1 && ~all(isnan(peakLocation)) %compare spectra if already peak stored in feature
-                        currentSpectrum = spectrum(~cellfun(@isempty, spectrum));
-                        currentSpectrum = vertcat(currentSpectrum{:});
                         %build current average spectrum
-                        currentSpectrum = AlignSpectra(currentSpectrum,"average");
+                        currentSpectrum = alignSpectra(spectrum,"average","low","true");
                         %gather possible spectra
                         possibleSpectra = IntegrationResults(iFile).spectrumMS2(idx);
-                        possibleSpectra = AlignSpectra(possibleSpectra,"normal");
+                        possibleSpectra = alignSpectra(possibleSpectra,"normal","low","true");
                         %calculate scores
-                        [CompoundScores,~] = ScoresBetweenSets(currentSpectrum,possibleSpectra);
+                        [CompoundScores,~] = scoresBetweenSets(currentSpectrum,possibleSpectra);
                         if all(CompoundScores(:,1) < 700) %features don´t match
                             continue
                         end
 
                     elseif sum(idx) > 1 %use feat with higher Similarity score
-                        currentSpectrum = spectrum(~cellfun(@isempty, spectrum));
-                        currentSpectrum = vertcat(currentSpectrum{:});
                         %build current average spectrum
-                        currentSpectrum = AlignSpectra(currentSpectrum,"average");
+                        currentSpectrum = alignSpectra(spectrum,"average","low","true");
                         %gather possible spectra
                         possibleSpectra = IntegrationResults(iFile).spectrumMS2(idx);
-                        possibleSpectra = AlignSpectra(possibleSpectra,"normal");
+                        possibleSpectra = alignSpectra(possibleSpectra,"normal","low","true");
                         %calculate scores
-                        [CompoundScores,~] = ScoresBetweenSets(currentSpectrum,possibleSpectra);
+                        [CompoundScores,~] = scoresBetweenSets(currentSpectrum,possibleSpectra);
                         if all(CompoundScores(:,1) < 700) %no matching feature
                             continue
                         end
@@ -537,7 +533,7 @@ classdef GCData < RawData
                     peakBorders(2,iFile) = IntegrationResults(iFile).peakEndLocation(idx);
                     signal2Noise(1,iFile) = IntegrationResults(iFile).signal2Noise(idx);
                     entropy(1,iFile) = IntegrationResults(iFile).entropy(idx);
-                    spectrum{1,iFile} = IntegrationResults(iFile).spectrumMS2(idx);
+                    spectrum(1,iFile) = IntegrationResults(iFile).spectrumMS2(idx);
                     xic{1,iFile} = full(xicData(peakBorders(1,iFile):peakBorders(2,iFile),:));
 
                     %delete peaks from input struct
@@ -587,9 +583,7 @@ classdef GCData < RawData
             %% merges all found EI fragment spectra (all files) into an average spectrum
             outputStruct = inputStruct;
             for n = 1:length(inputStruct)
-                spectraCells = inputStruct(n).spectrumMS2;
-                spectraCells = horzcat(spectraCells{:});
-                outputStruct(n).spectrumMS2 = alignSpectra(spectraCells,"average","low","true");
+                outputStruct(n).spectrumMS2 = alignSpectra(inputStruct(n).spectrumMS2,"average","low","true");
             end
         end
     end

@@ -58,7 +58,7 @@ set2 = alignedSpectra(:,nSpectra_Set1+1:end);
 scoreArraySet1 = zeros(nSpectra_Set1*nSpectra_Set2,3);
 for iSpectrum_Set1 = 1:nSpectra_Set1
     for jSpectrum_Set2 = 1:nSpectra_Set2
-        scoreArraySet1(iSpectrum_Set1*jSpectrum_Set2,1) = calculateCompositScore(set1(:,iSpectrum_Set1),set2(:,jSpectrum_Set2));
+        scoreArraySet1(iSpectrum_Set1*jSpectrum_Set2,1) = calculateCompositeScore(set1(:,iSpectrum_Set1),set2(:,jSpectrum_Set2));
         scoreArraySet1(iSpectrum_Set1*jSpectrum_Set2,2:3) = [iSpectrum_Set1,jSpectrum_Set2];
     end
 end
@@ -67,7 +67,7 @@ end
 scoreArraySet2 = zeros(nSpectra_Set1*nSpectra_Set2,3);
 for iSpectrum_Set2 = 1:nSpectra_Set2
     for jSpectrum_Set1 = 1:nSpectra_Set1
-        scoreArraySet2(iSpectrum_Set2*jSpectrum_Set1,1) = calculateCompositScore(set2(:,iSpectrum_Set2),set1(:,jSpectrum_Set1));
+        scoreArraySet2(iSpectrum_Set2*jSpectrum_Set1,1) = calculateCompositeScore(set2(:,iSpectrum_Set2),set1(:,jSpectrum_Set1));
         scoreArraySet2(iSpectrum_Set2*jSpectrum_Set1,2:3) = [iSpectrum_Set2,jSpectrum_Set1];
     end
 end

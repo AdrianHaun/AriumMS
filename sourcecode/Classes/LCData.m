@@ -66,14 +66,16 @@ classdef LCData < RawData
 
             %remove scans outside RT range
             obj = obj.cutScansToSize;
+            obj.nScan = cellfun(@numel,obj.TempDataFileObj.TimeCells);
             progressBar.Value = 0.33;
 
             % remove isotopes
             if obj.useIsotopeFilter == true
+                progressBar.Message = "Removing Isotopes";
                 obj = obj.filterIsotopes;
+                progressBar.Value = progressBar.Value + 0.05;
             end
 
-            obj.nScan = cellfun(@numel,obj.TempDataFileObj.TimeCells);
             if obj.useMassAlign == true
                 progressBar.Message = "Aligning MS Scans";
                 obj = obj.alignMasses("batch");
@@ -139,7 +141,7 @@ classdef LCData < RawData
                 obj.TempDataFileObj.ROICells = peakCells;
                 progressBar.Value = progressBar.Value + 0.05;
             end
-            % pad arrays with Maximum peak width*3 Scans to eliminate
+            % pad arrays with Maximum peak width*1.5 Scans to eliminate
             % integration interference between matrices
             obj = obj.finalizeROI;
 
