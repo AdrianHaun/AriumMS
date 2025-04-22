@@ -1,3 +1,5 @@
+1.2.0:          update to stable Version
+
 1.2.alpha4.3.4: Fixed an error when opening a project file from a different PC.
 
 1.2.alpha4.3.3: Fixed: Display of wrong file (pre 1.2.alpha4.0) infos when importing a project.
