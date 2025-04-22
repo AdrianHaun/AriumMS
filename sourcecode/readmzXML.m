@@ -1,7 +1,7 @@
 function [ScanData,retentionTime,varargout] = readmzXML(DataPath,options)
 %% reads mzXML files and outputs mz, Intensity and time data
-% .mzXML files can be 32bit and 64bit encoded can use zlib compression
-% Input: Datapath: datapath to .mzML file
+% .mzXML files can be 32bit and 64bit encoded and can use zlib compression
+% Input: DataPath: data path to .mzXML file
 % optional inputs:
 % MSLevel: specifies the MS level to to extract, a MSLevel > 1 enables additional outputs. default is 1
 % Outputs:
@@ -99,7 +99,7 @@ retentionTime(idx)=[];
 retentionTime = cellfun(@(x) sscanf(x,'PT %f'), retentionTime);
 
 if options.MSLevel > 1
-    varargout{1} = PrecursorMass;
+    varargout{1} = str2double(PrecursorMass);
     varargout{2} = CollisionEnergy;
     varargout{3} = FragMethod;
 else

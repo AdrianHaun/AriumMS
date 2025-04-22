@@ -2,14 +2,13 @@ function [ScanData,retentionTime,varargout] = readmzML(DataPath,options)
 %% reads mzML files and outputs mz, Intensity and time data
 % .mzML files can be 32bit and 64bit encoded can use zlib compression, numpress compression is not yet
 % supported
-% Input: Datapath: datapath to .mzML file
+% Input: DataPath: data path to .mzML file
 % optional inputs:
 % MSLevel: specifies the MS level to to extract, a MSLevel > 1 enables additional outputs. default is 1
 % Outputs:
 % Peaks: cell array each containing a two column matrix, with mz values and corresponding intensity
 % times: vector with scan times corresponding to each cell of Peaks.
-% optional outputs: Precursor Mass, Fragmentation Energy, Fragmentation
-% Type
+% optional outputs: Precursor Mass, Fragmentation Energy, Fragmentation Type
 arguments
     DataPath            (1,1) string
     options.MSLevel     (1,1) {mustBeInteger} = 1
@@ -123,7 +122,7 @@ for i = 0:spectrumNodes.getLength - 1
         end
     end
 end
-%remove whitespace from binary strings
+%remove white space from binary strings
 IntBinaryStrings = strtrim(IntBinaryStrings);
 mzBinaryStrings = strtrim(mzBinaryStrings);
 %remove MSn data if not relevant

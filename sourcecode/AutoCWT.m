@@ -1,16 +1,17 @@
-function peaks = AutoCWT(DiffEIC,smoothedEIC,ScanFrequency,minWidth,maxWidth)
+function peaks = AutoCWT(DiffEIC,smoothedEIC,FilterBank)
 % performs CWT and initial peak picking on ROI
-FilterBank = cwtfilterbank("SignalLength",numel(DiffEIC),"WaveletParameters",[3 4],"VoicesPerOctave",8,"SamplingPeriod",seconds(ScanFrequency),"PeriodLimits",[seconds(minWidth) seconds(maxWidth)]);% prepare wavelet filterbank
+
 %% wavelet transform
 [CWT,~,~,~] = wt(FilterBank,-DiffEIC);
 CWT=rescale(real(CWT),0,1);
 %find initial rt
 RTID=any(imextendedmax(CWT,0.2),1);
-isolatedPeak=smoothedEIC;
-isolatedPeak(~RTID)=0;
-[~,locs,~,~] = findpeaks(isolatedPeak,'WidthReference','halfheight');
+smoothedEIC(~RTID)=0;
+[~,locs,~,~] = findpeaks(smoothedEIC,'WidthReference','halfheight');
+clearvars smoothedEIC DiffEIC
 %find initial border locations
 [~,borders,~,~] = findpeaks(sum(imextendedmin(CWT,0.1)));
+clearvars CWT
 peaks=zeros(numel(locs),4);
 peaks(:,1)=locs';
 %sort borders to RT

@@ -1,11 +1,11 @@
-function [MSroi_aug,mzroi_aug,time_aug] = MSroiaug2(MSroi1,MSroi2,mzroi1,mzroi2,mzerror,mzErrorUnit,thresh,time1,time2)
+function [MSroi_aug,mzroi_aug,time_aug] = MSroiaug3(MSroi1,MSroi2,mzroi1,mzroi2,mzerror,mzErrorUnit,thresh,time1,time2)
 
 % INPUT
 % MSroi1 and MSroi2, the two MS matrices to augment
-% mzroi1,mzroi2, the two mzroi values consoidered in each matrix
-% mzerror is a parameter to define the diff between two mazroi values
-% to be considerd the same (+- mzerror)
-% tresh, threshold value to be considered in the augmented MSroi_aug and mzroi_aug
+% mzroi1,mzroi2, the two mzroi values considered in each matrix
+% mzerror is a parameter to define the diff between two mzroi values
+% to be considers the same (+- mzerror)
+% thresh, threshold value to be considered in the augmented MSroi_aug and mzroi_aug
 % time1 and time2 are the two elution time measurements
 %
 % OUTPUT
@@ -14,6 +14,7 @@ function [MSroi_aug,mzroi_aug,time_aug] = MSroiaug2(MSroi1,MSroi2,mzroi1,mzroi2,
 
 % Adjustment: replaced the addition of random noise with 0
 % added relative mz error [ppm] support
+% use weighted mean for mzroi_aug calculation
 
 [nr1,~]=size(MSroi1);
 [nr2,~]=size(MSroi2);
@@ -35,11 +36,18 @@ for i=1:length(mzroi1)
         jsize=length(j);
         imz=imz+1;
         if jsize>1
-            mzroi_aug(imz)=mean([mzroi1(1,i),mean([mzroi2(1,j(1):j(jsize))])]);
+            weight = max(MSroi2(:,j(1):j(jsize)))';
+            weight = weight/(max(weight));
+            addedmz = mean([mzroi2(1,j(1):j(jsize))],"Weights",weight);
             MS=sum(MSroi2(:,j(1):j(jsize))')';
+            weight = [max(MSroi1(:,i));max(MS)];
+            weight = weight/max(weight);
+            mzroi_aug(imz)=mean([mzroi1(1,i),addedmz],"Weights",weight);
             MSroi_aug(:,imz)=[MSroi1(:,i);MS];
         else
-            mzroi_aug(imz)=mean([mzroi1(1,i),mzroi2(1,j)]);
+            weight = [max(MSroi1(:,i));max(MSroi2(:,j))];
+            weight = weight/max(weight);
+            mzroi_aug(imz)=mean([mzroi1(1,i),mzroi2(1,j)],"Weights",weight);
             MSroi_aug(:,imz)=[MSroi1(:,i);MSroi2(:,j)];
         end
         
@@ -62,7 +70,7 @@ for i=1:length(mzroi1)
 end
 
 for i=1:length(mzroi2)
-    j=find(abs(mzroi2(1,i)-mzroi1(1,:))<=mzerror/2);
+    j=find(abs(mzroi2(1,i)-mzroi1(1,:))<=mzerror);
     
     if isempty(j)
         if max(MSroi2(:,i)) >= thresh

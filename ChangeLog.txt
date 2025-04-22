@@ -1,3 +1,93 @@
+1.2.0:          update to stable Version
+
+1.2.alpha4.3.4: Fixed an error when opening a project file from a different PC.
+
+1.2.alpha4.3.3: Fixed: Display of wrong file (pre 1.2.alpha4.0) infos when importing a project.
+                       Error when plotting EICs but no file check was performed (e.g. when importing project files)
+
+1.2.alpha4.3.2: Isotopes are now filtered immediately after the files are loaded, before the ROI search. This reduces the processing time for all subsequent steps.
+                This change removes m/z intensity pairs from the raw data and is no longer comparable with the other feature filters. Therefore, the isotope filter is no longer shown in the rejected features per filter plot.
+                Fixed file info text overwriting old info text on file reselection in some cases.
+
+1.2.alpha4.3.1: Fixed layout for dual polarity Adduct and Neutral loss selection window.
+                Test version for different isotope filter.
+
+1.2.alpha4.3.0: Support for measurements with polarity switching or positive and negative polarity measurements in a group. 
+                MS data are automatically converted from pseudomolecular ion mass to molecular mass depending on scan polarity.
+                The polarity switch in the main options has been repurposed to specify the type of MS data, either profile or centroid.
+                If the switch is set to Profile, MS data will be converted to centroid data.
+
+1.2.alpha4.2.0: internal standard normalization uses now Shape-preserving piecewise cubic Hermite (pchip) interpolation to generate correction values, instead of flat nearest neighbor correction. 
+                fixed wrong IS mass delta when IS was not specified in ascending mass order
+		        
+
+1.2.alpha4.1.2: fixed internal standard mass deviation plot error when there are only one internal standard found for mz correction.
+		fixed wrong IS processing when multiple IS are selected but not all are found.
+		Reduced memory usage when gathering final integration results. 
+
+1.2.alpha4.1.1: fixed error when there are only one internal standard found for mz correction.
+                
+1.2.alpha4.1: m/z correction with internal standard uses now Shape-preserving piecewise cubic Hermite (pchip) interpolation to generate correction values, instead of flat nearest neighbor correction. 
+              m/z correction values outside the mass range covered by internal standards are generated using nearest neighbor extrapolation.
+
+1.2.alpha4.0: Raw peak data, processing temp files, and ROI results are now stored in temporary files on the hard disk to reduce memory requirements.
+         Plot added to data visualization: Internal Standard Mass Deviation plot.
+         Profile data is now converted to centroid data. Reducing calculation times and memory requirements.
+         Added identification level proposed by Schymanski et.al. to results table.
+         Added plotting of EICs to processing view. Multiple EICs can be selected at the same time. Separate m/z with , or ;
+    Minor changes:
+        Peak alignment parameters Maximum Shift and Pulse Width and baseline correction parameters Window Size and Step Size are now entered in seconds instead of scans.
+        Filter strength option for entropy filter added. Specify the strength of the entropy filter. The entropy of all peaks is binned and the bin edges are used to determine the maximum entropy allowed. 
+        The width of the bins is chosen to cover the data range and reveal the shape of the underlying distribution. Strict: upper edge of the first bin; Medium: upper edge of the third bin; Lax: upper edge of the fifth bin.
+        Changed default quantile value for Spectral Alignment from 0.95 to 0.99.
+        Streamlined internal standard correction, resulting in cleaner code and slightly faster processing.
+        Changed file infos to show number of files with MS2 scans instead of average number of MSn scans per file.
+        Removed robust fit options for baseline correction smoothing methods.
+        Changed ROI mass calculation from mean to weighted mean. Intensities are used as weighting factors.
+
+        Fixed: Graph plotting error in evaluation view when number of augmented groups is odd.
+               Wrong calculation of mass deltas for isotope and adduct/neutral loss filters when using relative mass error.
+               Sub windows are not closed when closing the app.
+               Triangular artifacts caused by interpolation of ROI intensities when there are large gaps.
+               Result table only showing MS2 database results even when MS1 search results but no MS2 results are present.
+
+1.2.alpha3.5: Fixed multiple errors when evaluating MS2 information for more than two groups.
+
+1.2.alpha3.4: Change the way feature peak information is stored. This reduces memory requirements and the size of .ams project files. The change causes an error when plotting integration results with older projects. To fix this, reprocess the files.
+
+1.2.alpha3.3: Added the Database Toolbox to the list of required toolboxes for the App version, thus avoiding bugs related to missing functions for the Database Searcher.
+
+1.2.alpha3.2: Raw MS file data is no longer stored. This greatly reduces memory consumption, .ams file size, and therefore save and load times of project files.
+        Fixed: Error when plotting TIC, feature and p-value distributions in the evaluation panel.
+
+1.2.alpha3.1: faster processing of "Preview Parameters"
+        fixed: Plot parameter preview error when parameter preview was cleared by reselecting files, but file preview was not plotted.
+
+1.2.alpha3:  database search results are now saved in the project file.
+        fixed: the database file must be reselected each time the database searcher is opened.
+               incorrectly calculated identity match factor between spectra when no matching mass peaks are present.
+               Database search results contain empty tables.
+               Results of the MS2 database search are not sorted by score.
+
+1.2.alpha2:  MS2 data processing is now supported.
+        MSn spectra of features within a group are compared to filter duplicate features.
+        Features are separated between groups if there are no matching spectra.
+        Unnecessary variables have been removed to save memory. This could cause errors with old saved projects.
+        Added MS2 database search.
+        Clicking on the score of an MS2 database search result plots the feature and the database spectrum in a new window.
+        Added local HMDB database generation. To generate the database you need a metabolite file (xml) and MS-MS spectra files (xml), both can be downloaded here: https://hmdb.ca/downloads
+        Predicted and experimental spectra can be combined by unzipping both .zip files into a single folder. 
+        
+    Minor changes:
+    Fixed:  Axis labels of plots are covered in some cases.
+            Typographical errors
+        
+             
+1.2.alpha1:  Added MS1 databank search.
+        Added datapoint labels to File preview plots and parameter preview plots.
+        Selecting a cell in the Result table highlights te corresponding feature in vulcano, scatter and cloud plots.
+        
+
 1.1.0:  Background Code restructure.
         Reduced initial load time.
         Reduced System memory usage.
@@ -5,8 +95,8 @@
         Sample and Group specific scaling was moved to the Group Tab, Scaling and Transformation moved to General Options Tab
         changed transformation option "log" to "Natural log" for chlarification
         Separate option panels for Peak Alignment and Spectral Alignment.
-	Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
-	Save and import project as custom file format.
+	    Before merging groups, m/z values of features are now converted from [M+H]+/[M-H]- to M.
+	    Save and import project as custom file format.
         Updated Tooltips for each setting.
 
     It is now possible to define the following settings for each group separately:
@@ -16,31 +106,30 @@
 	
     New Features:
         Added custom file parser for .mzXML and .mzML files. 
-        Added compatibility for zlib compressed files and 64bit encoded files.
+        Added compatibility for zlib compressed files
         The Number of groups limit was removed, more groups can now be added via the "+ Tab".
         The Start Time and End Time fields now refer to the measurement with the most scans and no longer to the shortest.
         Shorter measurements are now expanded to the size of the longest measurement by appending blank scans, rather than truncating all measurements to the size of the smallest.
         Input units are now displayed inside edit fields.
         The average number of scans and the average scan rate will be displayed for the data files in a group after file selection. 
         Selected files are now displayed as tooltips for the file info text.
-	It is now possible to augment groups with different number of files.
-	Unaugmented groups can be processed alongside augmented groups.
+	    It is now possible to augment groups with different number of files.
+	    Unaugmented groups can be processed alongside augmented groups.
         After processing, a table with the following feature data opens automatically: 
         ID, feature name (M@RT), intensity of individual measurements, average intensity, standard deviation, fold change, p-value, unique feature in group,
         feature not found in reference, occurrence per group, occurrence in all groups, Mass [M] and retention time [s].
         Added option for log10, cube root and reciprocal transformation.	
-	Transformation and scaling can be changed after processing. Using the "Apply Changes Button" recalculates the results and displays a new output table.
+	    Transformation and scaling can be changed after processing. Using the "Apply Changes Button" recalculates the results and displays a new output table.
         The number of loadings displayed in biplots can now be selected. The selection plots the number of loadings with the largest sum of the first three principal components.
         Change in Copy settings to all groups: Instead of automatically copying all settings to all groups, you can now select which setting groups are copied.
         Added relative mass tolerance, for all relevant processing steps (ROI search, Peak Picking, Adduct/Isotope/Contaminant Filter, Internal Standard, Group Merging).
         Tolerances for Group merging can now be selected seperatly inside the Define Augmentation and Referencing window.
-	MS polarity is automatically determined after selecting group files. If files with different polarities are selected an error is displayed.
 
     New Plots:
         Feature intensity distribution plot after applied transformation and scaling 
-	p-Value distribution plot
-	Normal probability plot for feature intensity after applied transformation and scaling.
-	Plot Integration: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
+	    p-Value distribution plot
+	    Normal probability plot for feature intensity after applied transformation and scaling.
+	    Plot Integration: Plots the integrated area for features. Specific feature IDs can be selected. Additionally, you can filter for significant, unique, or non-unique features.
 
     Minor Bugfixes:
         Calculation error for NH3 neutral loss masses.
