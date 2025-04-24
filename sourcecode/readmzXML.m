@@ -98,14 +98,16 @@ retentionTime(idx)=[];
 %convert times to double and round to first decimal
 retentionTime = cellfun(@(x) sscanf(x,'PT %f'), retentionTime);
 
+varargout{1} = polarity;
 if options.MSLevel > 1
-    varargout{1} = str2double(PrecursorMass);
-    varargout{2} = CollisionEnergy;
-    varargout{3} = FragMethod;
+    varargout{2} = str2double(PrecursorMass);
+    varargout{3} = CollisionEnergy;
+    varargout{4} = FragMethod;
+    
 else
-    varargout{1} = 0;
     varargout{2} = 0;
-    varargout{3} = "empty";
+    varargout{3} = 0;
+    varargout{4} = "empty";
 end
 end
 

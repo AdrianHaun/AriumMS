@@ -332,17 +332,18 @@ classdef FeatData
                 tempTime = RawDataArray(n).RawDataFileObj.TimeDataMSn;
                 TimeData{n} = vertcat(tempTime{:});
                 precursorTemp = RawDataArray(n).RawDataFileObj.Precursor;
+                polaritiesMS2Temp = RawDataArray(n).RawDataFileObj.polaritiesMS2;
                 % FragType{n} = vertcat(RawDataArray(n).CollisionType{:});
                 % FragEnergy{n} = vertcat(RawDataArray(n).CollisionEnergy{:});
 
                 %convert pseudo-molecular ion precursor to molecular
                 %precursor
-                switch RawDataArray(n).MSPolarity
-                    case "negative"
-                        Precursor{n} = round(vertcat(precursorTemp{:}) - 1.007825,5);
-                    case "positive"
-                        Precursor{n} = round(vertcat(precursorTemp{:}) + 1.007825,5);
-                end
+                precursorTemp = vertcat(precursorTemp{:});
+                polaritiesMS2Temp = vertcat(polaritiesMS2Temp{:});
+                modifier = ones(size(polaritiesMS2Temp))*1.007825;
+                idx = polaritiesMS2Temp == "+";
+                modifier(idx) = modifier(idx)*-1;
+                Precursor{n} = precursorTemp + modifier;
             end
             clearvars tempTime tempPeaks precursorTemp
 

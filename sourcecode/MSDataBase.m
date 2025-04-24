@@ -624,7 +624,7 @@ classdef MSDataBase
             Scores = cell(1,size(MeasuredSpectra,2));
             parfor n = 1:size(MeasuredSpectra,2)
                 Spectra = [MeasuredSpectra(:,n), DBSpectra];
-                Scores{1,n} = OuterFeatScores(Spectra,0.015,"Da");
+                Scores{1,n} = OuterFeatScores(Spectra,0.1,"Da");
             end
             Scores = horzcat(Scores{:});
             %% get indices of high score spectra
@@ -637,7 +637,7 @@ classdef MSDataBase
                     continue
                 else
                     %get Entry index and Score
-                    idx = SC(:,1) >= 800;
+                    idx = SC(:,1) >= 700;
                     Val = SC(idx,:);
                     if isempty(Val)
                         continue

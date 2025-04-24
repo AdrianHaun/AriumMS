@@ -133,6 +133,9 @@ FragMethod(idx)=[];
 PrecursorMass(idx)=[];
 mzBinaryStrings(idx)=[];
 IntBinaryStrings(idx)=[];
+polarity=repmat(polarity,height(retentionTime),1);
+polarity(polarity == "positive scan") = "+";
+polarity(polarity == "negative scan") = "-";
 % convert retentionTimes to seconds
 switch retentionTimeUnit
     case "minute"
@@ -154,14 +157,15 @@ for n=1:size(mzBinaryStrings,1)
     ScanData{n} = [mzbinary' Intbinary'];
 end
 
+varargout{1} = polarity;
 if options.MSLevel > 1
-    varargout{1} = str2double(PrecursorMass);
-    varargout{2} = CollisionEnergy;
-    varargout{3} = FragMethod;
+    varargout{2} = str2double(PrecursorMass);
+    varargout{3} = CollisionEnergy;
+    varargout{4} = FragMethod;
 else
-    varargout{1} = 0;
     varargout{2} = 0;
-    varargout{3} = "empty";
+    varargout{3} = 0;
+    varargout{4} = "empty";
 end
 end
 %helper functions
