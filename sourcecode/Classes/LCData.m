@@ -624,12 +624,12 @@ classdef LCData < RawData
                 %remove possible empty scans
                 foundScan(cellfun(@isempty, foundScan)) = [];
                 if numel(foundScan) >= 1
-                    foundScan = alignSpectra(foundScan,"average","low","true");
-                    foundScan = denoiseScans({foundScan},"threshold",0.05);
-                    foundScan = foundScan{:};
                     %remove masses > precursor mass
-                    highMassId = foundScan(:,1) > FeatureStruct(iFeature).mass_measured;
-                    foundScan(highMassId,:) = [];
+                    for jScan = 1:height(foundScan)
+                        highMassId = foundScan{jScan,1}(:,1) > FeatureStruct(iFeature).mass_measured + 1;
+                        foundScan{jScan,1}(highMassId,:) = [];
+                    end
+                    foundScan = alignSpectra(foundScan,"average","low","true",0.05);
                 else % no found scan
                     foundScan = [];
                 end

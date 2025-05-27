@@ -195,25 +195,18 @@ classdef RawData
                 switch fileType
                     case "mzML"
                         [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzML_MSandMS2(dataFile{iFile});
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] = cleanRawProfileScans(DataMS1{iFile,1},DataMS2{iFile,1});
                     case "mzXML"
                         [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzXML_MSandMS2(dataFile{iFile});
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] = cleanRawProfileScans(DataMS1{iFile,1},DataMS2{iFile,1});
                     case "CDF"
                         [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzCDF(dataFile{iFile});
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] = cleanRawProfileScans(DataMS1{iFile,1},DataMS2{iFile,1});
                 end
-            end
-            
-            % pre-process raw data
-            parfor iFile = 1:nFile
+
+                % pre-process raw data
                 switch separationType
                     case "GC"
                         %centroid profile data
                         DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
-                        % clean scans
-                        DataMS1{iFile,1}.centroidDataMS1 = denoiseScans(DataMS1{iFile,1}.centroidDataMS1,"variable");
-
+                        DataMS1{iFile,1} = removeEmptyScans(DataMS1{iFile,1});
                     otherwise
                         %convert MS1 and MS2 precursor to molecular mass
                         DataMS1{iFile,1}.profileDataMS1 = convertScans2MolecularMass(DataMS1{iFile,1}.profileDataMS1,DataMS1{iFile,1}.polarityMS1);
@@ -226,15 +219,15 @@ classdef RawData
 
                         %centroid profile data
                         DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
-                        %clean scans
-                        DataMS1{iFile,1}.centroidDataMS1 = denoiseScans(DataMS1{iFile,1}.centroidDataMS1,"variable");
 
                         %compress MS2 data and store
                         DataMS2{iFile,1}.centroidDataMS2 = centroidScans(DataMS2{iFile,1}.profileDataMS2);
                         DataMS2{iFile,1}.centroidDataMS2 = normalizeScans(DataMS2{iFile,1}.centroidDataMS2);
-                        DataMS2{iFile,1}.centroidDataMS2 = denoiseScans(DataMS2{iFile,1}.centroidDataMS2,"variable");
+                        [DataMS1{iFile,1},DataMS2{iFile,1}] = removeEmptyScans(DataMS1{iFile,1},DataMS2{iFile,1});
                 end
+                
             end
+            
             %store data
             %MS1 data
             DataMS1 = vertcat(DataMS1{:});
@@ -592,7 +585,7 @@ classdef RawData
                     outTime{iFile,1} = padarray(outTime{iFile,1},maxScan-scanNumberArray(iFile,1),0,'post');
                 end
             else
-                outROI{1,1} = msRoi_end;
+                outROI{1,1} = smoothdata(msRoi_end,"gaussian",3); %apply slight smoothing, to remove gaps within peaks
                 outTime{1,1} = time_end;
             end
             obj.TempDataFileObj.ROICells = outROI;

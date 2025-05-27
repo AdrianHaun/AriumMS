@@ -23,9 +23,8 @@ normalizedScans = cell(size(originalScans));
 
 parfor nScan = 1:height(normalizedScans)
     currentScan = originalScans{nScan,1};
-    if isempty(currentScan)
-        continue
+    if ~isempty(currentScan)
+        currentScan(:,2) = currentScan(:,2)./max(currentScan(:,2));
+        normalizedScans{nScan,1} = currentScan;
     end
-    currentScan(:,2) = currentScan(:,2)./max(currentScan(:,2));
-    normalizedScans{nScan,1} = currentScan;
 end

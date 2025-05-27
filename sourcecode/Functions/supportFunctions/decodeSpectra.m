@@ -1,6 +1,5 @@
 function decodedSpectrum = decodeSpectra(encodedSpectrum)
-%% decodeSpectra decodes base64 encoded mass spectra
-
+%% decodeSpectra decodes string mass spectra from database entries
 % input: encodedSpectra as one dimensional string array
 % output: cell array containing two column matrix. Column 1: mass, 
 %           column 2: relative intensity
@@ -12,7 +11,6 @@ end
 decodedSpectrum = cell(size(encodedSpectrum,1),1);
 
 parfor n = 1:size(encodedSpectrum,1)
-    decoded = matlab.net.base64decode(encodedSpectrum(n,1));
-    decoded = typecast(decoded,'double');
-    decodedSpectrum{n,1} = reshape(decoded,[],2);
+    decoded = split(encodedSpectrum(n,1),"-",2);
+    decodedSpectrum{n,1} = string2double(reshape(decoded,[],2));
 end

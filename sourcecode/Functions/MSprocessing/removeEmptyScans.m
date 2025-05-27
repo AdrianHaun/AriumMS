@@ -1,29 +1,30 @@
-function [cleanedDataMS1,varargout] = cleanRawProfileScans(rawDataMS1,varargin)
-%% cleanRawProfileScans removes noise and centroides scans
+function [cleanedDataMS1,varargout] = removeEmptyScans(rawDataMS1,varargin)
+%% removeEmptyScans removes empty scans from MS-Data struct and compresses profileData by removing entries without intensity
 % DESCRIPTIVE TEXT
 
 cleanedDataMS1 = rawDataMS1;
+%remove entries with 0 intensity
+profileDataMS1 = cleanedDataMS1.profileDataMS1;
+parfor iScan = 1:height(profileDataMS1)
+    toRemove = profileDataMS1{iScan,1}(:,2) == 0;
+    profileDataMS1{iScan,1}(toRemove,:) = []
+end
+cleanedDataMS1.profileDataMS1 = profileDataMS1;
 
-%clean MS1
-% set noise to 0
-cleanedDataMS1.profileDataMS1 = denoiseScans(rawDataMS1.profileDataMS1,"variable");
-%remove scans with only one or no mass
-toRemove = cellfun(@numel, cleanedDataMS1.profileDataMS1)-1 <= 1;
-
+%remove empty scans
+toRemove = cellfun(@isempty, cleanedDataMS1.profileDataMS1) | cellfun(@isempty, cleanedDataMS1.centroidDataMS1);
 cleanedDataMS1.profileDataMS1(toRemove,:) = [];
+cleanedDataMS1.centroidDataMS1(toRemove,:) = [];
 cleanedDataMS1.timeDataMS1(toRemove,:) = [];
 if ~isempty(cleanedDataMS1.polarityMS1)
     cleanedDataMS1.polarityMS1(toRemove,:) = [];
 end
 
+
 %% clean MS2
 if nargin == 2
     rawDataMS2 = varargin{1};
     cleanedDataMS2 = rawDataMS2;
-   
-    % remove noise
-    cleanedDataMS2.profileDataMS2 = denoiseScans(rawDataMS2.profileDataMS2,"variable");
-    % remove possible empty scans in ms2
     emptyScans = cellfun(@isempty, cleanedDataMS2.profileDataMS2);
     cleanedDataMS2.profileDataMS2(emptyScans,:) = [];
     cleanedDataMS2.timeDataMS2(emptyScans,:) = [];
@@ -31,7 +32,5 @@ if nargin == 2
     cleanedDataMS2.precursorMass(emptyScans,:) = [];
     cleanedDataMS2.fragmentationEnergy(emptyScans,:) = [];
     cleanedDataMS2.fragmentationType(emptyScans,:) = [];
-    % normalize
-    cleanedDataMS2.profileDataMS2 = normalizeScans(cleanedDataMS2.profileDataMS2);
     varargout{1} = cleanedDataMS2;
 end

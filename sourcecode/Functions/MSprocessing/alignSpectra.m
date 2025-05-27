@@ -1,4 +1,4 @@
-function alignedSpectra = alignSpectra(spectraCells,mode,resolution,normalize)
+function alignedSpectra = alignSpectra(spectraCells,mode,resolution,normalize,threshold)
 %% alignSpectra takes a cell array of mass spectra and aligns them along the mass axis
 % 
 % inputs:   spectraCells: cell array containing two column matrices, 
@@ -24,6 +24,7 @@ arguments
     mode            (1,1) string {mustBeMember(mode,["normal","average"])} = "normal"
     resolution      (1,1) string {mustBeMember(resolution,["low","medium","high"])} = "high"
     normalize       (1,1) string {mustBeMember(normalize,["false","true"])} = "true"
+    threshold      (1,1) double {mustBeInRange(threshold,0,1)} = 0.01
 end
 
 switch resolution
@@ -40,13 +41,13 @@ spectraCells(cellfun(@isempty,spectraCells)) = [];
 
 if isscalar(spectraCells) %only one spectra-> just unpack
     alignedSpectra = spectraCells{1,1};
-
+elseif isempty(spectraCells)
+    alignedSpectra = [];
 else %align scans using ROI
     %build synthetic time vector
     times = 1:numel(spectraCells);
     % align
     [mzroi,MSroi,~] = ROIpeaks3(spectraCells,0,mzerror,"Da",1,times);
-
     if strcmp("average",mode)
         MSroi = sum(MSroi);
     end
@@ -57,8 +58,8 @@ end
 %normalize
 if strcmp(normalize,"true")
     alignedSpectra(:,2:end) = alignedSpectra(:,2:end)./max(alignedSpectra(:,2:end));
-    %remove masses with rel.intensity < 1%
-    id = alignedSpectra < 0.01;
+    %remove masses with rel.intensity < threshold
+    id = alignedSpectra < threshold;
     alignedSpectra(id) = 0;
     id = all(alignedSpectra(:,2:end)==0,2);
     alignedSpectra(id,:) = [];

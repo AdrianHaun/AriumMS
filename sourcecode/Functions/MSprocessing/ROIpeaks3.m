@@ -118,7 +118,7 @@ for i=1:nmzroi
     maxroi(i)=max(roicell{i,3});
 end
 
-iroi=find(numberroi>minroi & maxroi>thresh);
+iroi=find(numberroi>=minroi & maxroi>=thresh);
 
 mzroi=mzroi(iroi);
 nmzroi=length(mzroi);
@@ -137,9 +137,6 @@ for i=1:nmzroi
         MSroi(irow,i)=MSroi(irow,i)+MSI;
     end
 end
-
-% slightly smooth MSroi
-MSroi = smoothdata(MSroi,"gaussian",3);
 
     
 

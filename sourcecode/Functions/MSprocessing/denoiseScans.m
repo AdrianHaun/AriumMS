@@ -38,7 +38,9 @@ end
 %% Clean Data
 parfor j = 1:height(cleanedScans)
     data = rawScans{j,1};
-    idx = data(:,2) <= cutoff;
-    data(idx,:) = [];
-    cleanedScans{j,1} = data;
+    if ~isempty(data)
+        idx = data(:,2) <= cutoff;
+        data(idx,2) = 0;
+        cleanedScans{j,1} = data;
+    end
 end
