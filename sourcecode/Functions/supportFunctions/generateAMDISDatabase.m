@@ -24,8 +24,5 @@ parfor iEntry = 1:height(entryCells)
 
     database = [database, entry];
 end
-database=struct2table(database);
-conn = sqlite('AMDIS.db',"create");
-sqlwrite(conn,"SpectralDataBase",database);
-close(conn)
+database = struct2table(database);
 end

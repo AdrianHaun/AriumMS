@@ -7,6 +7,24 @@ classdef FeatData
     % and Standard Deviation, and applies data transformations and scaling.
 
     properties
+        FeatureStruct
+        ReferenceFeatureStruct
+
+        AugmentedStruct
+
+        augmentationAssignment  (:,2) categorical
+        mergedAssignment        (:,2) categorical
+        mergeMassTolerance      (1,1) double {mustBePositive} = 0.01
+        mergeMassUnit           (1,1) string {mustBeMember(mergeMassUnit,["Da","ppm"])} = "Da"
+        mergeTimeTolerance      (1,1) double {mustBePositive} = 5
+
+        transformationType      (1,1) string {mustBeMember(transformationType,["none","logn","log10","power","cube","reciprocal"])} = "none"
+        dataScalingType         (1,1) string {mustBeMember(dataScalingType,["none","Centering","Auto","Pareto","Vast","Range","Level"])} = "none"
+        pValueMax               (1,1) double {mustBeInRange(pValueMax,0,1)} = 0.05
+        minFoldChange           (1,1) double {mustBePositive} = 2
+        useHochbergFilter       (1,1) logical = false
+        falseDiscoveryRate      (1,1) double {mustBeInRange(falseDiscoveryRate,0,1)} = 0.1
+
         GroupName                   (1,:) string
         AbstractGroupName           (1,:) string
         FullUnscaledIntensityArray  (:,:) double
@@ -38,13 +56,53 @@ classdef FeatData
         DBScoreSpectraID            (:,:) cell
         DataBaseSpectra             (:,:) cell
         IdentificationLevel         (:,1) string
+
+        %% Plot
+        mainWindow          matlab.ui.Figure
     end
 
     methods
-        function obj = FeatData(FullOutput)
+        function obj = FeatData(appWindow)
+            % Construct an instance of this class
+            if isgraphics(appWindow)
+                obj.mainWindow = appWindow;
+            end
+        end
 
-            if nargin > 0
-                
+        function obj = processRawFeatures(obj,RawDataOutput)
+            
+            progressBar = uiprogressdlg(obj.mainWindow,"Title","Post Processing","Message","Augmenting Groups",Value=0);
+
+            % Augmentation
+            %Split Output into Augmentation Assignment
+            augAssignment = obj.augmentationAssignment(:,1);
+            augAssignment = removecats(augAssignment);
+            
+            mergedGroupIdentifier = unique(augAssignment);
+            
+            if numel(augAssignment) == numel(mergedGroupIdentifier)
+            % case 1: no Augmentation
+                obj.alignFeatures
+            else
+                % split groups
+                for iMergedIdentifier = 1:numel(mergedGroupIdentifier)
+                    mergedName = "augmentedGroup" + mergedGroupIdentifier(iMergedIdentifier);
+                    id = augAssignment == mergedGroupIdentifier(iMergedIdentifier);
+                    obj.mergeFeatureLists(RawDataOutput(id),mergedName);
+                end
+            end
+
+            
+
+            %% Reference Groups
+            RefAssign = obj.augmentationAssignment(:,2);
+            RefAssign = removecats(RefAssign,'none');
+
+            % case 1: no reference
+            % case 2: reference
+        end
+
+            function obj = doStuff(obj,input)
                 obj.GroupName = FullOutput.GroupName(1,:);
                 if size(FullOutput.GroupName,1)>1
                     obj.AbstractGroupName =  "Augmented Group " + FullOutput.GroupName(2,:);
@@ -93,7 +151,6 @@ classdef FeatData
                 obj = obj.CalculateFoldChanges;
                 obj = obj.BuildIdentificaltionLevelStrings;
             end
-        end
 
         function obj = BuildIdentificaltionLevelStrings(obj)
             % Lv5 unique Feature - mz@RT

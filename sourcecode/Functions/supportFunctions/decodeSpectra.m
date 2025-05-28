@@ -12,5 +12,5 @@ decodedSpectrum = cell(size(encodedSpectrum,1),1);
 
 parfor n = 1:size(encodedSpectrum,1)
     decoded = split(encodedSpectrum(n,1),"-",2);
-    decodedSpectrum{n,1} = string2double(reshape(decoded,[],2));
+    decodedSpectrum{n,1} = str2double(reshape(decoded,[],2));
 end
