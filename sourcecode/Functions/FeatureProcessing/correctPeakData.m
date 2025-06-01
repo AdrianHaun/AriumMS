@@ -34,7 +34,9 @@ initialPeakArray(hasBadBorder,:) = [];
 %preallocate output
 correctedPeakArray = ones(height(initialPeakArray),4);
 
-%scale chromatogram
+noiseLevel = std(originalChromatogram-smoothedChromatogram);
+
+%scale chromatograms
 smoothedChromatogram = smoothedChromatogram./max(smoothedChromatogram);
 
 %normalize threshhold
@@ -62,7 +64,7 @@ for iPeak = 1:size(initialPeakArray,1)
     end
 end
 
-noise = originalChromatogram-smoothedChromatogram;
+
 clearvars smoothedChromatogram
 
 %moving STD correction to remove errors from smoothed peaks
@@ -70,19 +72,19 @@ for iPeak = 1:size(initialPeakArray,1)
 
     %upper bond
     upperBorder = initialPeakArray(iPeak,3);
-    while upperBorder > 1 && upperBorder < numel(originalChromatogram)-8 
-        if abs(originalChromatogram(upperBorder-1)-mean(originalChromatogram(upperBorder-1:upperBorder+7,1))) <= std(noise(upperBorder-1:upperBorder+7,1)) || round(originalChromatogram(upperBorder-1,1)-originalChromatogram(upperBorder,1)) == 0
+    while upperBorder > 1 && upperBorder <= numel(originalChromatogram) 
+        if originalChromatogram(upperBorder-1)-originalChromatogram(upperBorder) <= noiseLevel
             upperBorder = upperBorder-1;
         else
-            correctedPeakArray(iPeak,3)=upperBorder;
+            correctedPeakArray(iPeak,3) = upperBorder;
             break
         end
     end
 
     %lower brder
     lowerBorder = initialPeakArray(iPeak,2);
-    while lowerBorder <= numel(originalChromatogram)-1 && lowerBorder > 8 
-        if abs(originalChromatogram(lowerBorder+1,1)-mean(originalChromatogram(lowerBorder-7:lowerBorder+1,1))) <= std(noise(lowerBorder-7:lowerBorder+1,1)) || round(originalChromatogram(lowerBorder,1)-originalChromatogram(lowerBorder+1,1)) == 0
+    while lowerBorder <= numel(originalChromatogram)-1 && lowerBorder >= 1 
+        if originalChromatogram(lowerBorder+1,1)-originalChromatogram(lowerBorder) <= noiseLevel
             lowerBorder = lowerBorder+1;
         else
             correctedPeakArray(iPeak,2) = lowerBorder;
@@ -97,6 +99,10 @@ for iPeak = 1:size(initialPeakArray,1)
     temporaryChromatogam(correctedPeakArray(iPeak,3)+1:end) = 0;
     [correctedPeakArray(iPeak,4),correctedPeakArray(iPeak,1)] = max(temporaryChromatogam);
 end
+
+%filter bad peaks 
+correctedPeakArray(correctedPeakArray(:,4)==0,:) = [];
+correctedPeakArray = unique(correctedPeakArray,"rows","stable");
 
 % Custom validation function
 function mustBeEqualSize(a,b)

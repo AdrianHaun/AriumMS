@@ -819,10 +819,10 @@ classdef RawData
                 idToRemoveNew = IntResults(iFeature).peakHeight == 1;
                 idxToRemove = idxToRemove | idToRemoveNew;
 
-                %remove peaks with bad Peak asymmetry
-                symmetry = (IntResults(iFeature).peakEndLocation - IntResults(iFeature).peakLocation)./(IntResults(iFeature).peakLocation - IntResults(iFeature).peakStartLocation);
-                idToRemoveNew = symmetry<0.3 | symmetry>3;
-                idxToRemove = idxToRemove | idToRemoveNew;
+                % %remove peaks with bad Peak asymmetry
+                % symmetry = (IntResults(iFeature).peakEndLocation - IntResults(iFeature).peakLocation)./(IntResults(iFeature).peakLocation - IntResults(iFeature).peakStartLocation);
+                % idToRemoveNew = symmetry<0.3 | symmetry>3;
+                % idxToRemove = idxToRemove | idToRemoveNew;
 
                 %less than minimum peak width
                 idToRemoveNew = IntResults(iFeature).peakEndLocation-IntResults(iFeature).peakStartLocation < MinPWDataPoints;
