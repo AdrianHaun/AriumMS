@@ -1,5 +1,5 @@
-function evaluation = evaluateDecompositions(decompositions, queryMass)
-%EVALUATEDECOMPOSITIONS Summary of this function goes here
+function [evaluation,decompositions] = evaluateDecompositions(decompositions, queryMass)
+%EVALUATEDECOMPOSITIONS generates formula string, and calculates score of 
 %   Detailed explanation goes here
 
 isValid = false(height(decompositions),1);
@@ -30,36 +30,34 @@ score = calculateScore(massDeviationPPM,RDBE,decompositions);
 varNames = ["Formula","mass deviation [ppm]","Formula Mass","Score","double-bond equivalents"];
 
 evaluation = table(formulaStr,massDeviationPPM,formulaMass,score,RDBE ,'VariableNames',varNames);
+decompositions(evaluation.Score < 0.15,:) = [];
 evaluation(evaluation.Score < 0.15,:) = [];
-evaluation = sortrows(evaluation,"Score","descend");
-
+[evaluation,index] = sortrows(evaluation,"Score","descend");
+decompositions = decompositions(index,:);
 end
 
 function score = calculateScore(massDeviation,valuesRDBE,decompositions)
 
 rareElementSum = zeros(height(decompositions),1);
 
-w1 = 100;
+w1 = 10;
 w2 = 2;
 w3 = 5;
 
-parfor iDecmoposition = 1:height(decompositions)
+for iDecmoposition = 1:height(decompositions)
     % Elemente
     counts = double(decompositions(iDecmoposition,:));
-
-    Br = counts(3) * 3;
-    Cl = counts(4) * 2;
+    Br = counts(3) * 5;
+    Cl = counts(4) * 3;
     F = counts(5) * 3;
-    I = counts(6) * 4;
+    I = counts(6) * 5;
     N = counts(7) * 0.5;
-    P = counts(9) * 1;
-    S = counts(10) * 1;
-
-    rareElementSum(iDecmoposition) = sum(Br + Cl + F + I + P + S + N);
+    S = counts(9) * 1;
+    P = counts(10) * 1;
+    rareElementSum(iDecmoposition) = Br + Cl + F + I + P + S + N;
 end
-score = w1*(1-massDeviation) + w2*valuesRDBE + w3*rareElementSum;
+score = w1*massDeviation + w2*valuesRDBE + w3*rareElementSum;
 
 score = 1./score;
 score = score./max(score);
-
 end
