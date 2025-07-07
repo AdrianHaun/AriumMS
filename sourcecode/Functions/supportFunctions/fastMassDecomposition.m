@@ -1,162 +1,103 @@
-function formulas = fastMassDecomposition(targetMass, tolerance)
-% FASTMASSDECOMPOSITION Effiziente Summenformel-Suche nach Rojas-Chertó et al.
-%
-%   targetMass - gewünschte monoisotopische Masse (double)
-%   tolerance  - Toleranz in Dalton (double)
-%   elements   - struct array mit Feldern 'symbol' und 'mass'
-%   maxCounts  - maximale Anzahl pro Element (array)
+function decompositions = fastMassDecomposition(M, epsilon)
+% integer+Range+heuristik+sort
 
-% %element search space
-% elements = struct( ...
-%     'symbol', {'H','C','N','O','P','S','Cl','Br'}, ...
-%     'mass', [1.007825;12;14.003074;15.994915;30.973762;31.972071;34.968853;78.918227;126.904473]);
-% % element count search space
-% maxCounts = [40,20,5,15,3,2,1,1];
+scalingFactor = 1e5;
+M_scaled = int32(round(M * scalingFactor));
+epsilon_scaled = int32(round(epsilon * scalingFactor));
 
-%element search space
+massVector = {12.000000, 1.007825, 78.918338, 34.968853, 18.998403, 126.904468, 14.003074, 15.994915, 30.973762, 31.972071}';
+massInt = cellfun(@(x) int32(round(x * scalingFactor)), massVector, 'UniformOutput', false);
+
 elements = struct( ...
-    'symbol', {"C","H","N","O"}', ...
-    'mass', {12,1.007825,14.003074,15.994915}');
-% element count search space
-maxCounts = [10,10,2,5];
+    'symbol', {"C","H","Br","Cl","F","I","N","O","P","S"}', ...
+    'mass', massVector, ...
+    'massInt', massInt);
 
-scaleFactor = 1e6;
-nElements = length(elements);
+nElements = numel(elements);
 
-% Diskrete Zielmasse
-massInt = round(targetMass * scaleFactor);
-tolInt  = round(tolerance  * scaleFactor);
-targetMin = massInt - tolInt;
-targetMax = massInt + tolInt;
+maxCounts = [ ...
+    90, ...% C
+    160,...% H
+    4, ...% Br
+    6, ...% Cl
+    5, ...% F
+    3, ...% I
+    25,...% N
+    30,...% O
+    6, ...% P
+    6  ...% S
+];
 
-% Diskrete Elementmassen
-elementMassesInt = round([elements.mass] * scaleFactor);
+[~, perm] = sort([elements.mass], 'ascend');
+invPerm = zeros(size(perm));
+invPerm(perm) = 1:length(perm);
 
-% Elemente optional nach Masse sortieren (schnelleres Pruning)
-[~, sortIdx] = sort(elementMassesInt);
-elementMassesInt = elementMassesInt(sortIdx);
-elements = elements(sortIdx);
-maxCounts = maxCounts(sortIdx);
+elements = elements(perm);
+maxCounts = maxCounts(perm);
 
-% Initialisiere DP: jede Zelle ist eine Matrix der Kombinationen
+currentCounts = zeros(1, nElements, 'int32');
 
-% Speicherbereich aufteilen
-dpBelow = cell(targetMin, 1);
-dp = cell(targetMax - targetMin + 1, 1);
+% Preallocate a big matrix to hold solutions
+maxSolutions = int32(1e7); % adjust if needed
+solutionsMatrix = zeros(maxSolutions, nElements, 'int32');
+solutionIdx = int32(0);
 
-% Startkombination
-startCombs = zeros(1, nElements);
-
-% DP Iteration (äußere Schleife bleibt seriell)
-for m = 0:targetMax
-    if m==0
-        currCombs = startCombs;
-    elseif m<targetMin
-        if isempty(dpBelow{m}), continue; end
-        currCombs = dpBelow{m};
-    else
-        idxCurr = m - targetMin + 1;
-        if isempty(dp{idxCurr}), continue; end
-        currCombs = dp{idxCurr};
-    end
-
-    numCombs = size(currCombs, 1);
-    newCombsAll = cell(1, numCombs);
-    newMassesAll = cell(1, numCombs);
-
-    % PARALLEL: Bearbeite jede Kombination gleichzeitig
-    parfor i = 1:numCombs
-        comb = currCombs(i,:);
-        localNewCombs = [];
-        localNewMasses = [];
-
-        for e = 1:nElements
-            if comb(e) < maxCounts(e)
-                newComb = comb;
-                newComb(e) = newComb(e) + 1;
-                newMass = m + elementMassesInt(e);
-
-                if newMass > targetMax
-                    continue;
-                end
-
-                massLeft = sum((maxCounts - newComb) .* elementMassesInt);
-                if newMass + massLeft < targetMin
-                    continue;
-                end
-
-                localNewCombs = [localNewCombs; newComb];
-                localNewMasses = [localNewMasses; newMass];
-            end
-        end
-        newCombsAll{i} = localNewCombs;
-        newMassesAll{i} = localNewMasses;
-    end
-
-    % Seriell: Ergebnisse einsortieren
-    for i = 1:numCombs
-        combs_i = newCombsAll{i};
-        masses_i = newMassesAll{i};
-
-        for j = 1:size(combs_i,1)
-            newComb = combs_i(j,:);
-            newMass = masses_i(j);
-
-            if newMass < targetMin
-                if isempty(dpBelow{newMass})
-                    dpBelow{newMass} = newComb;
-                else
-                    if ~ismember(newComb, dpBelow{newMass}, 'rows')
-                        dpBelow{newMass} = [dpBelow{newMass}; newComb];
-                    end
-                end
-            else
-                idxNew = newMass - targetMin + 1;
-                if isempty(dp{idxNew})
-                    dp{idxNew} = newComb;
-                else
-                    if ~ismember(newComb, dp{idxNew}, 'rows')
-                        dp{idxNew} = [dp{idxNew}; newComb];
-                    end
-                end
-            end
-        end
-    end
+% Precompute max mass cumulative sums
+maxMassCum = zeros(1, nElements, 'int32');
+cumsumMax = int32(0);
+for i = 1:nElements
+    cumsumMax = cumsumMax + int32(maxCounts(i)) * elements(i).massInt;
+    maxMassCum(i) = cumsumMax;
 end
 
+% Start recursion
+[solutionsMatrix, solutionIdx] = iterativeDecompose(M_scaled, epsilon_scaled, elements, maxCounts, currentCounts, nElements, solutionsMatrix, solutionIdx, maxMassCum);
 
+% Extract only the filled rows
+validSolutions = solutionsMatrix(1:solutionIdx, :);
 
-% Ergebnisse extrahieren
-formulas = {};
-for m = targetMin:targetMax
-    idx = m - targetMin + 1;
-    if isempty(dp{idx})
+% Reorder to original element order
+decompositions = validSolutions(:, invPerm);
+end
+
+function [solutionsMatrix, solutionIdx] = iterativeDecompose(targetMass, epsilon, elements, maxCounts, counts, k, solutionsMatrix, solutionIdx,maxMassCum) %#codegen
+
+if k == 0
+    if abs(double(targetMass)) <= double(epsilon)
+        solutionIdx = solutionIdx + 1;
+        solutionsMatrix(solutionIdx, :) = counts;
+    end
+    return
+end
+
+mass_k = elements(k).massInt;
+
+max_k = min((targetMass + epsilon) / mass_k, maxCounts(k));
+
+if max_k < 0
+    return
+end
+
+minMass = int32(0);
+maxMass = int32(0);
+if k > 1
+    maxMass = maxMassCum(k-1);
+end
+
+for count_k = 0:max_k
+    residualMass = targetMass - int32(count_k)*mass_k;
+
+    if residualMass + epsilon < minMass
+        break
+    end
+    if residualMass - epsilon > maxMass
         continue
     end
-    for i = 1:size(dp{idx},1)
-        c = dp{idx}(i,:);
-        c_unsorted = zeros(1, nElements);
-        c_unsorted(sortIdx) = c;
 
-        formula = '';
-        for e = 1:nElements
-            count = c_unsorted(e);
-            if count>0
-                formula = [formula, elements(sortIdx(e)).symbol];
-                if count>1
-                    formula = [formula, num2str(count)];
-                end
-            end
-        end
-        formulas{end+1} = formula;
-    end
+    newCounts = counts;
+    newCounts(k) = int32(count_k);
+
+    [solutionsMatrix, solutionIdx] = iterativeDecompose(residualMass, epsilon, elements, maxCounts, newCounts, k-1, solutionsMatrix, solutionIdx, maxMassCum);
 end
-%unpack and join
-formulas = vertcat(formulas{:});
-formulas(:,1) = [];
-formulas = join(formulas,"");
-
-% Doppelte Summenformeln entfernen
-formulas = unique(formulas);
 
 end
