@@ -217,10 +217,13 @@ classdef RawData
                         modifier(idx) = modifier(idx)*-1;
                         DataMS2{iFile,1}.precursorMassCorrected = precursors + modifier;
 
-                        %centroid profile data
+                        %denoise profile data
+                        DataMS1{iFile,1}.profileDataMS1 = denoiseScans(DataMS1{iFile,1}.profileDataMS1,"variable");
+                        %centroid MS1
                         DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
 
                         %compress MS2 data and store
+                        DataMS2{iFile,1}.profileDataMS2 = denoiseScans(DataMS2{iFile,1}.profileDataMS2,"variable");
                         DataMS2{iFile,1}.centroidDataMS2 = centroidScans(DataMS2{iFile,1}.profileDataMS2);
                         DataMS2{iFile,1}.centroidDataMS2 = normalizeScans(DataMS2{iFile,1}.centroidDataMS2);
                         [DataMS1{iFile,1},DataMS2{iFile,1}] = removeEmptyScans(DataMS1{iFile,1},DataMS2{iFile,1});
@@ -907,9 +910,9 @@ classdef RawData
             allScans = vertcat(allScans{:});
             nFile = numel(obj.dataFile);
 
-            parfor iScan = 1: length(FeatureStruct)
+            parfor iFeature = 1: length(FeatureStruct)
                 spectra = cell(1,nFile);
-                location = FeatureStruct(iScan).peakLocations;
+                location = FeatureStruct(iFeature).peakBorders;
 
                 for jFile = 1:nFile
                     %check if borders contain NaN then skip iteration
@@ -917,7 +920,7 @@ classdef RawData
                         continue
                     end
                     %select spectra in peak range
-                    scans = allScans(location(1,jFile));
+                    scans = allScans(location(1,jFile):location(2,jFile));
                     %remove possible empty scans
                     scans(cellfun(@isempty, scans)) = [];
                     if ~isempty(scans)
@@ -927,7 +930,7 @@ classdef RawData
                         spectra{1,jFile} = {[]};
                     end
                 end
-                OutputStruct(iScan).spectrumMS1 = spectra;
+                OutputStruct(iFeature).spectrumMS1 = spectra;
             end
         end
 
@@ -1489,6 +1492,29 @@ classdef RawData
                     FeatureStruct = [FeatureStruct;splitFeatures(2:end)];
                 end
             end
+        end
+        
+        function FeatureStruct = gatherIsotopeDistributions(obj,FeatureStruct)
+            %% WIP
+            TOLERANCE = obj.withinFileMassTolerance;
+            TOLERANCEUNIT = obj.withinFileMassUnit;
+            isotopePattern = cell(height(FeatureStruct),1);
+            chargeState = zeros(height(FeatureStruct),1);
+
+            parfor iFeature = 1:height(FeatureStruct)
+                targetMass = FeatureStruct(iFeature).mass_measured;
+
+                if strcmp(TOLERANCEUNIT,"ppm")
+                    adjustedTolerance = TOLERANCE * targetMass * 10^-6;
+                else
+                    adjustedTolerance = TOLERANCE;
+                end
+                
+                spectrum = FeatureStruct(iFeature).spectrumMS1{:};
+                [isotopePattern{iFeature,1},chargeState(iFeature,1)] = extractIsotopicDistribution(targetMass,spectrum,"Window",6,"Tolerance",adjustedTolerance);
+            end
+            FeatureStruct.isotopePattern = isotopePattern;
+            FeatureStruct.chargeState = chargeState;
         end
 
         function Output = confirmSameFeatureByIsotopeDistribution(Output)

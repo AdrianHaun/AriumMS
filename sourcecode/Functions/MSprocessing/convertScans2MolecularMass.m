@@ -1,4 +1,4 @@
-function Scans = ConvertScans2MolecularMass(Scans,polarities)
+function Scans = convertScans2MolecularMass(Scans,polarities)
 % use scan polarities stored in polarities to convert MS scans from
 % pseudomolecular mass to molecular mass
 

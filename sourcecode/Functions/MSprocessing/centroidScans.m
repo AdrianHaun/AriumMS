@@ -28,9 +28,6 @@ if check > 0.2
     return
 end
 
-%denoise scans
-profileScans = denoiseScans(profileScans,"variable");
-
 %preallocate output
 centroidedScans = cell(size(profileScans));
 
@@ -47,7 +44,7 @@ parfor iScan = 1:height(centroidedScans)
             vec = currentScan(id,:);
             mass = mean(vec(:,1),Weights = vec(:,2)/max(vec(:,2)));
             maxIntensity(jPeak,1) = mass;
-            maxIntensity(jPeak,2) = sum(vec(:,2));
+            maxIntensity(jPeak,2) = max(vec(:,2));
         end
         centroidedScans{iScan,1} = maxIntensity;
     else

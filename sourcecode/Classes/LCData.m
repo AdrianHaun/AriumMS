@@ -593,6 +593,7 @@ classdef LCData < RawData
         function outputStruct = gatherMS2Spectra(obj,FeatureStruct)
             %check if MSn data exists, skip if not
             if isscalar(obj.RawDataFileObj.centroidDataMS2)
+                outputStruct = FeatureStruct;
                 return
             end
 
@@ -636,6 +637,13 @@ classdef LCData < RawData
                 FeatureStruct(iFeature).spectrumMS2 = foundScan;
             end
             outputStruct = FeatureStruct;
+        end
+
+        function FeatureStruct = correctFeatureMass(FeatureStruct)
+            %% WIP
+            parfor iFeature = 1:height(FeatureStruct)
+                FeatureStruct(iFeature).mass_corrected = FeatureStruct(iFeature).mass_measured * FeatureStruct(iFeature).chargeState;
+            end 
         end
     end
 end
