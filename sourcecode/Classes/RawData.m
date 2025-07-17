@@ -119,7 +119,7 @@ classdef RawData
             obj.groupName = groupName;
             obj.RawDataFile = tempname +".mat";
             obj.ROIDataFile = tempname +".mat";
-            obj = obj.initializeStorageFile;            
+            obj = obj.initializeStorageFile;
         end
         %% Handling MS files
         function obj = dataFileCheck(obj)
@@ -228,9 +228,9 @@ classdef RawData
                         DataMS2{iFile,1}.centroidDataMS2 = normalizeScans(DataMS2{iFile,1}.centroidDataMS2);
                         [DataMS1{iFile,1},DataMS2{iFile,1}] = removeEmptyScans(DataMS1{iFile,1},DataMS2{iFile,1});
                 end
-                
+
             end
-            
+
             %store data
             %MS1 data
             DataMS1 = vertcat(DataMS1{:});
@@ -951,7 +951,7 @@ classdef RawData
 
             Output = FeatureStruct;
         end
-        
+
         function Output = initializeOutputStruct(obj,IntegrationData)
             %preallocate Output struct
             Output = struct(...
@@ -983,7 +983,7 @@ classdef RawData
             % fills remaining fields: dataSize, featID
             % rounds retentionTime
             % not yet implemented: formula, adduct type, corrected mass
-            
+
             Output.dataSize = length(featureStruct);
             Output.occurrenceFiltered = obj.occurenceFiltered;
 
@@ -994,7 +994,7 @@ classdef RawData
                 %build feature ID string
                 featureStruct(iFeat).featID = featureStruct(iFeat).mass_measured + "Da@" + featureStruct(iFeat).retentionTime + "s_" + obj.groupName;
             end
-            Output.feature = featureStruct;
+
             % separation Type specific tasks
 
             switch Output.separationType
@@ -1004,23 +1004,25 @@ classdef RawData
                         % GC -> database Search
 
                         % add Adduct type
-                        Output.feature(iFeat).adductType = "M+";
+                        featureStruct(iFeat).adductType = "M+";
                         % calculate corrected mass based on adduct Type or Database
                     end
 
                 otherwise %ESI
-
+                    %
                     % calculate formula
-                    % ESI -> mass decomposition
+                    featureStruct = obj.calculateFormulaFromMass(featureStruct);
 
                     % add Adduct type
                     % ESI check ms1 spectrum
 
                     % calculate corrected mass based on adduct Type or Database
             end
+            %store final struct
+            Output.feature = featureStruct;
 
         end
-        
+
         %% Data handling
         function obj = initializeStorageFile(obj)
             %check if file already exists
@@ -1048,7 +1050,7 @@ classdef RawData
             obj.RawDataFileObj.fragmentationEnergy = {[]};
             obj.RawDataFileObj.fragmentationType = {[]};
         end
-    
+
         function obj = setOptimizationOptions(obj,optimizeMode,bayesOptions)
 
             switch optimizeMode
@@ -1296,9 +1298,79 @@ classdef RawData
                     end
             end
         end
-    
+
+        function FeatureStruct = gatherIsotopeDistributions(obj,FeatureStruct)
+            
+            TOLERANCE = obj.withinFileMassTolerance;
+            TOLERANCEUNIT = obj.withinFileMassUnit;
+
+            parfor iFeature = 1:height(FeatureStruct)
+                targetMass = FeatureStruct(iFeature).mass_measured;
+
+                if strcmp(TOLERANCEUNIT,"ppm")
+                    adjustedTolerance = TOLERANCE * targetMass * 10^-6;
+                else
+                    adjustedTolerance = TOLERANCE;
+                end
+
+                spectrum = FeatureStruct(iFeature).spectrumMS1;
+                isotopePattern = cell(1,numel(spectrum));
+                chargeState = zeros(1,numel(spectrum));
+                for jFile = 1:numel(spectrum)
+                    if ~isempty(spectrum{1,jFile})
+                        [isotopePattern{1,jFile},chargeState(1,jFile)] = extractIsotopicDistribution(targetMass,spectrum{1,jFile},"Window",6,"Tolerance",adjustedTolerance);
+                    end
+                end
+                FeatureStruct(iFeature).isotopePattern = isotopePattern;
+                FeatureStruct(iFeature).chargeState = chargeState;
+            end
+        end
+
+        function featureStruct = calculateFormulaFromMass(obj,featureStruct)
+
+            tolerance = obj.betweenFileMassTolerance;
+            tolUnit = obj.betweenFileMassUnit;
+
+            for iFeature = 1:height(featureStruct)
+  
+                currentMass = featureStruct(iFeature).mass_corrected;
+                % determine Cl,Br and S counts from isotope distribution
+                elementHits = detectIsotopicElements(featureStruct(iFeature).isotopePattern(:,1), featureStruct(iFeature).isotopePattern(:,2), featureStruct(iFeature).chargeState);
+                maxCounts = [ceil(currentMass/12),...
+                    ceil(currentMass/1),...
+                    ceil(currentMass/79),...
+                    ceil(currentMass/35),...
+                    ceil(currentMass/19),...
+                    ceil(currentMass/127),...
+                    ceil(currentMass/14),...
+                    ceil(currentMass/16),...
+                    ceil(currentMass/31),...
+                    ceil(currentMass/32)];
+
+                maxCounts(3) = elementHits.Br.count;
+                maxCounts(4) = elementHits.Cl.count;
+                maxCounts(10) = elementHits.S.count;
+
+                % calculate formula
+                if strcmp(tolUnit,"ppm")
+                    toleranceAdjusted = tolerance * currentMass *10^-6;
+                else
+                    toleranceAdjusted = tolerance;
+                end
+
+                decomposition = fastMassDecomposition(currentMass,toleranceAdjusted,maxCounts);
+
+                %filter and evaluate decompositions
+                [evaluation,~] = evaluateDecompositions(decomposition, currentMass);
+                if ~isempty(evaluation)
+                    featureStruct(iFeature).formulaEvaluation = evaluation;
+                    featureStruct(iFeature).formula = evaluation.Formula(1);
+                end
+            end
+        end
     end
 
+    %% static methods block
     methods (Static)
 
         function IntegrationStruct = calculatePeakEntropy(IntegrationStruct)
@@ -1414,7 +1486,7 @@ classdef RawData
 
         function FeatureStruct = trimExtractedIonChromatograms(FeatureStruct)
             %% Trims the stored XIC to the location of the corresponding peak
-            % 
+            %
             nFile = width(FeatureStruct(1).peakLocations);
             allXic = {FeatureStruct.XIC}';
             allBorders = {FeatureStruct.peakBorders}';
@@ -1444,7 +1516,7 @@ classdef RawData
             % features with scores < 650 are split into a new feature
 
             nFeat = length(FeatureStruct);
-            
+
             MINIMUM_SCORE = 650;
 
             for iFeat = 1:nFeat
@@ -1462,7 +1534,7 @@ classdef RawData
                 spectra = denoiseScans(spectra,"threshold",0.025);
 
                 alingedSpectra = alignSpectra(spectra,"normal","low","true");
-                
+
                 compoundScores = scoresWithinSet(alingedSpectra);
                 % rebuild original file
                 for jFile = 1:numel(originalFileID)
@@ -1476,7 +1548,7 @@ classdef RawData
                     idtoKeep = unique(idtoKeep);
                     idtoSplit = compoundScores(compoundScores(:,1) < MINIMUM_SCORE,2:3);
                     idtoSplit = unique(idtoSplit);
-                    
+
                     %check number of Peaks to remove
                     if isempty(idtoKeep) %all, keep first entry remove the rest
                         idtoSplit(1) = [];
@@ -1493,71 +1565,36 @@ classdef RawData
                 end
             end
         end
-        
-        function FeatureStruct = gatherIsotopeDistributions(obj,FeatureStruct)
-            %% WIP
-            TOLERANCE = obj.withinFileMassTolerance;
-            TOLERANCEUNIT = obj.withinFileMassUnit;
-            isotopePattern = cell(height(FeatureStruct),1);
-            chargeState = zeros(height(FeatureStruct),1);
 
-            parfor iFeature = 1:height(FeatureStruct)
-                targetMass = FeatureStruct(iFeature).mass_measured;
+        function FeatureStruct = confirmSameFeatureByIsotopeDistribution(FeatureStruct)
+            %% compares isotopic pattern of each feature entry
+            % features with bad scores are split into different features
 
-                if strcmp(TOLERANCEUNIT,"ppm")
-                    adjustedTolerance = TOLERANCE * targetMass * 10^-6;
-                else
-                    adjustedTolerance = TOLERANCE;
-                end
-                
-                spectrum = FeatureStruct(iFeature).spectrumMS1{:};
-                [isotopePattern{iFeature,1},chargeState(iFeature,1)] = extractIsotopicDistribution(targetMass,spectrum,"Window",6,"Tolerance",adjustedTolerance);
-            end
-            FeatureStruct.isotopePattern = isotopePattern;
-            FeatureStruct.chargeState = chargeState;
-        end
-
-        function Output = confirmSameFeatureByIsotopeDistribution(Output)
-            %% WIP
-            featureStruct = Output.feature;
-            numFeats = length(featureStruct);
-
-            for n = 1:numFeats
-                spectra = featureStruct(n).spectrumMS1;
-                if sum(~cellfun("isempty",spectra)) <= 1 %only one file with peak or no spectra
+            MINSCORE = 600;
+            for iFeature = 1:length(FeatureStruct)
+                isotopePattern = FeatureStruct(iFeature).isotopePattern;
+                if sum(~cellfun("isempty",isotopePattern)) <= 1 %only one file with peak or no pattern
                     continue
                 end
 
                 %build index to original file
-                originalFileID = 1:numel(spectra);
-                originalFileID(cellfun(@isempty,spectra)) = [];
-                spectra(cellfun(@isempty,spectra)) = [];
+                originalFileID = 1:numel(isotopePattern);
+                originalFileID(cellfun(@isempty,isotopePattern)) = [];
+                isotopePattern(cellfun(@isempty,isotopePattern)) = [];
 
-                % clean scans
-                for j = 1:width(spectra)
-                    data = spectra{1,j};
-                    if isempty(data)
-                        continue
-                    end
-                    idx = data(:,2) < 0.05;
-                    data(idx,:) = [];
-                    spectra{1,j} = data;
-                end
-
-                alingedSpectra = AlignSpectra(spectra,"average","high","true");
-                CompoundScores = ScoresWithinSet(alingedSpectra);
+                alingedIsotopePattern = alignSpectra(isotopePattern,"normal","high","true");
+                compoundScores = scoresWithinSet(alingedIsotopePattern);
                 % rebuild original file
                 for file = 1:numel(originalFileID)
-                    CompoundScores(CompoundScores==file) = originalFileID(file);
+                    compoundScores(compoundScores==file) = originalFileID(file);
                 end
 
-                if all(CompoundScores(:,1) >= 650)
+                if all(compoundScores(:,1) >= MINSCORE)
                     continue
                 else %split feature
-
-                    idtoKeep = CompoundScores(CompoundScores(:,1) >= 650,2:3);
+                    idtoKeep = compoundScores(compoundScores(:,1) >= MINSCORE,2:3);
                     idtoKeep = unique(idtoKeep);
-                    idtoSplit = CompoundScores(CompoundScores(:,1) < 650,2:3);
+                    idtoSplit = compoundScores(compoundScores(:,1) < MINSCORE,2:3);
                     idtoSplit = unique(idtoSplit);
                     id = any(idtoSplit == idtoKeep,1);
                     idtoSplit(id) = [];
@@ -1569,14 +1606,39 @@ classdef RawData
                         idtoSplit(1) = [];
                     end
 
-                    splitFeatures = SplitFeature(featureStruct(n),idtoSplit);
+                    splitFeatures = splitFeature(FeatureStruct(iFeature),idtoSplit);
                     %append
-                    featureStruct(n) = splitFeatures(1);
-                    featureStruct = [featureStruct;splitFeatures(2:end)];
+                    FeatureStruct(iFeature) = splitFeatures(1);
+                    FeatureStruct = [FeatureStruct;splitFeatures(2:end)];
                 end
             end
-            Output.feature = featureStruct;
         end
 
+        function FeatureStruct = averageIsotopePattern(FeatureStruct)
+        %%  builds the average Isotopic pattern of each feature by aligning all patterns from each file and averaging them
+            parfor iFeature = 1:height(FeatureStruct)
+                isotopePattern = FeatureStruct(iFeature).isotopePattern;
+                chargeState = FeatureStruct(iFeature).chargeState;
+                %remove empty cells
+                chargeState(cellfun(@isempty,isotopePattern)) = [];
+                isotopePattern(cellfun(@isempty,isotopePattern)) = [];
+                if ~isempty(chargeState) %average pattern and 
+                    FeatureStruct(iFeature).isotopePattern = alignSpectra(isotopePattern,"average","high","true");
+                    FeatureStruct(iFeature).chargeState = median(chargeState,"all"); % only pattern of the same charge state, confirmation in previous step (confirmSameFeatureByIsotopeDistribution)
+                else
+                    FeatureStruct(iFeature).isotopePattern = [0,0];
+                    FeatureStruct(iFeature).chargeState = 0;
+                end
+            end
+        end
+
+        function FeatureStruct = correctMassByChargeState(FeatureStruct)
+            %% uses charge state information to adjust the mass of each feature
+            parfor iFeature = 1:height(FeatureStruct)
+                if FeatureStruct(iFeature).chargeState > 0
+                    FeatureStruct(iFeature).mass_corrected = FeatureStruct(iFeature).mass_measured * FeatureStruct(iFeature).chargeState;
+                end
+            end
+        end
     end
 end

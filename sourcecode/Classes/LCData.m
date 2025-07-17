@@ -203,8 +203,6 @@ classdef LCData < RawData
             % Build Storage Arrays and filter by number of occurrences
             [FeatureData,obj] = obj.buildFeatureArray(IntegrationData);
             clearvars IntegrationData IDX
-            %
-            % FeatureData = obj.ConfirmSameFeatureByIsotopeDistribution(FeatureData);
 
             % apply scaling
             if obj.useScaling == true
@@ -578,9 +576,18 @@ classdef LCData < RawData
                 if isISIntegration == false
                     %gather original scans
                     storedFeatures = obj.findOriginalMassScans(storedFeatures);
+                    % trim XIC to relevant parts
+                    storedFeatures = obj.trimExtractedIonChromatograms(storedFeatures);
+                    % extract isotope distribution
+                    storedFeatures = obj.gatherIsotopeDistributions(storedFeatures);
+                    % confirm same feature
+                    storedFeatures = obj.confirmSameFeatureByIsotopeDistribution(storedFeatures);
                     % Occurrence filter
                     [storedFeatures,obj.occurenceFiltered] = obj.occurrenceFilterFeatures(storedFeatures);
-                    storedFeatures = obj.trimExtractedIonChromatograms(storedFeatures);
+                    % build feature isotope pattern
+                    storedFeatures = obj.averageIsotopePattern(storedFeatures);
+                    storedFeatures = obj.correctMassByChargeState(storedFeatures);
+                    % gather MS2 scans
                     storedFeatures = obj.gatherMS2Spectra(storedFeatures);
                 end
                 

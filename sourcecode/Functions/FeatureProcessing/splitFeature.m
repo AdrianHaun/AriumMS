@@ -32,6 +32,8 @@ emptyFeature(1).entropy = NaN(1,nFiles);
 emptyFeature(1).XIC = cell(1,nFiles);
 emptyFeature(1).spectrumMS1 = cell(1,nFiles);
 emptyFeature(1).spectrumMS2 = cell(1,nFiles);
+emptyFeature(1).isotopePattern = cell(1,nFiles);
+emptyFeature(1).chargeState = NaN(1,nFiles);
 
 FeaturesOut = repmat(emptyFeature,numel(idToSplit),1);
 
@@ -47,7 +49,11 @@ for iSplitIndex = 1:numel(idToSplit)
     FeaturesOut(iSplitIndex).entropy(idToSplit(iSplitIndex)) =  FeatureIn.entropy(idToSplit(iSplitIndex));
     FeaturesOut(iSplitIndex).XIC(idToSplit(iSplitIndex)) =  FeatureIn.XIC(idToSplit(iSplitIndex));
     FeaturesOut(iSplitIndex).spectrumMS1(idToSplit(iSplitIndex)) =  FeatureIn.spectrumMS1(idToSplit(iSplitIndex));
-    FeaturesOut(iSplitIndex).spectrumMS2(idToSplit(iSplitIndex)) =  FeatureIn.spectrumMS2(idToSplit(iSplitIndex));
+    if ~isempty(FeatureIn.spectrumMS2)
+        FeaturesOut(iSplitIndex).spectrumMS2(idToSplit(iSplitIndex)) =  FeatureIn.spectrumMS2(idToSplit(iSplitIndex));
+    end
+    FeaturesOut(iSplitIndex).isotopePattern(idToSplit(iSplitIndex)) =  FeatureIn.isotopePattern(idToSplit(iSplitIndex));
+    FeaturesOut(iSplitIndex).chargeState(idToSplit(iSplitIndex)) =  FeatureIn.chargeState(idToSplit(iSplitIndex));
 end
 
 %remove Peaks from Input Feature

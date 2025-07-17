@@ -33,10 +33,12 @@ spectrumA = [spectrumA;0];
 spectrumB = [spectrumB;0];
 
 % calculate correction factor
-composit = (spectrumA./downShiftedA.*downShiftedB./spectrumB);
+composit = (spectrumA./downShiftedA).*(downShiftedB./spectrumB);
 composit(~isfinite(composit)) = [];
 composit(composit>1) = composit(composit>1).^-1;
-
+if isempty(composit)
+    composit = 1;
+end
 correctionFactor = 1/nZeroBothSpectra * sum(composit);
 
 %% calculate composite score
