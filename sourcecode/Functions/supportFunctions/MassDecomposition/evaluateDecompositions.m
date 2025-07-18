@@ -25,18 +25,20 @@ end
 
 massDeviationPPM = (abs(formulaMass-queryMass)./queryMass)*10^6;
 
-score = calculateScore(massDeviationPPM,RDBE,decompositions);
+score = calculateFormulaScore(massDeviationPPM,RDBE,decompositions);
 
 varNames = ["Formula","mass deviation [ppm]","Formula Mass","Score","double-bond equivalents"];
 
 evaluation = table(formulaStr,massDeviationPPM,formulaMass,score,RDBE ,'VariableNames',varNames);
-decompositions(evaluation.Score < 0.15,:) = [];
-evaluation(evaluation.Score < 0.15,:) = [];
-[evaluation,index] = sortrows(evaluation,"Score","descend");
+
+%only keep 10 best formulas
+[~,index] = maxk(evaluation.Score,10);
 decompositions = decompositions(index,:);
+evaluation = evaluation(index,:);
+
 end
 
-function score = calculateScore(massDeviation,valuesRDBE,decompositions)
+function score = calculateFormulaScore(massDeviation,valuesRDBE,decompositions)
 
 rareElementSum = zeros(height(decompositions),1);
 

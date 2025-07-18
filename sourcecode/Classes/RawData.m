@@ -1360,11 +1360,14 @@ classdef RawData
 
                 decomposition = fastMassDecomposition(currentMass,toleranceAdjusted,maxCounts);
 
-                %filter and evaluate decompositions
-                [evaluation,~] = evaluateDecompositions(decomposition, currentMass);
+                %filter nonsensical decompositions
+                [evaluation,decomposition] = evaluateDecompositions(decomposition, currentMass);
+                % compare feature isotope distribution to formula
+                % distribution
+                bestFitIndex = findBestMatchingFormulaByIsotopeDistribution(decomposition,featureStruct(iFeature).isotopePattern);
+                
                 if ~isempty(evaluation)
                     featureStruct(iFeature).formulaEvaluation = evaluation;
-                    featureStruct(iFeature).formula = evaluation.Formula(1);
                 end
             end
         end

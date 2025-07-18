@@ -2,12 +2,12 @@ function [isValid, RDBE] = validateFormula(counts)
 % uses heuristics described by Tobias Kind & Oliver Fiehn
 % Seven Golden Rules for heuristic filtering of molecular formulas obtained by accurate mass spectrometry
 % BMC Bioinformatics. 2007 Mar 27;8:105. doi: 10.1186/1471-2105-8-105
+% to 
+% counts: vector of atom counts in this order: [C,H,Br,Cl,F,I,N,O,P,S]
 %
-% counts: Vektor der Anzahl [C,H,N,O,P,S,Cl,Br,I,F]
-%
-% Rückgabe:
+% output:
 %   isValid (true/false)
-%   RDBE (berechnetes RDBE)
+%   RDBE (calculated ring double bond equivalents)
 
 if numel(counts) ~= 10
     error('counts must have 10 elements: C,H,Br,Cl,F,I,N,O,P,S');
@@ -30,29 +30,24 @@ X = Cl + Br + I + F;
 
 issues = {};
 
-% 1) Mindestens ein Atom
-if sum(counts) <1
-    issues{end+1} = 'Empty formula';
+% at least three atoms (water)
+if sum(counts) < 3
+    issues{end+1} = 'too smol';
 end
 
-% 2) Keine negativen Counts
-if any(counts<0)
-    issues{end+1} = 'Negative atom count';
-end
-
-% 3) Senior Rule
+% Senior Rule
 senior = 2*C + N +2 - H + X;
 if senior<0
     issues{end+1} = 'Fails senior rule';
 end
 
-% 4) rings-plus-double-bonds equivalent
+% rings-plus-double-bonds equivalent
 RDBE = C-(H+X)/2 + (N+P)/2 + 1;
 if RDBE > 40
     issues{end+1} = 'Extreme RDBE';
 elseif RDBE < 0
     issues{end+1} = 'negative RDBE';
-end
+end 
 
 % element ratio checks
 ratio = H/C;
@@ -86,6 +81,10 @@ end
 ratio = S/C;
 if ratio >= 3
     issues{end+1} = 'Extreme S/C ratio';
+end
+ratio = O/P;
+if ratio < 3 % only phosphates in metabolites 
+    issues{end+1} = 'non Phosphate formula';
 end
 
 %% element probability check
@@ -123,5 +122,4 @@ end
 
 % Valid?
 isValid = isempty(issues);
-
 end

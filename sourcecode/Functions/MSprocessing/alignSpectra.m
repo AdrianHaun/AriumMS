@@ -24,7 +24,7 @@ arguments
     mode            (1,1) string {mustBeMember(mode,["normal","average"])} = "normal"
     resolution      (1,1) string {mustBeMember(resolution,["low","medium","high"])} = "high"
     normalize       (1,1) string {mustBeMember(normalize,["false","true"])} = "true"
-    threshold      (1,1) double {mustBeInRange(threshold,0,1)} = 0.01
+    threshold       (1,1) double {mustBeInRange(threshold,0,1)} = 0.01
 end
 
 switch resolution
