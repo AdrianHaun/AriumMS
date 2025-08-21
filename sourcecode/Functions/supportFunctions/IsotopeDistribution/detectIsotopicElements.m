@@ -56,7 +56,7 @@ function elementHits = detectIsotopicElements(isoMasses, isoIntensities, chargeS
     expectedRatio = estCl*rCl + estBr*rBr + estS*rS;
 
     % Confidence if difference < threshold
-    confThreshold = 0.1;
+    confThreshold = 0.5;
     conf = abs(expectedRatio - ratio) < confThreshold;
 
     % Output struct

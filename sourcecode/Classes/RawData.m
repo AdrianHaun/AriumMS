@@ -1327,25 +1327,25 @@ classdef RawData
         end
 
         function featureStruct = calculateFormulaFromMass(obj,featureStruct)
-
+            % finds chemical formula from monoisotopic mass
+            MINSCORE = 600;
             tolerance = obj.betweenFileMassTolerance;
             tolUnit = obj.betweenFileMassUnit;
 
-            for iFeature = 1:height(featureStruct)
-  
+            parfor iFeature = 1:height(featureStruct)
                 currentMass = featureStruct(iFeature).mass_corrected;
                 % determine Cl,Br and S counts from isotope distribution
                 elementHits = detectIsotopicElements(featureStruct(iFeature).isotopePattern(:,1), featureStruct(iFeature).isotopePattern(:,2), featureStruct(iFeature).chargeState);
                 maxCounts = [ceil(currentMass/12),...
-                    ceil(currentMass/1),...
-                    ceil(currentMass/79),...
-                    ceil(currentMass/35),...
-                    ceil(currentMass/19),...
-                    ceil(currentMass/127),...
-                    ceil(currentMass/14),...
-                    ceil(currentMass/16),...
-                    ceil(currentMass/31),...
-                    ceil(currentMass/32)];
+                    floor(currentMass/1),...
+                    floor(currentMass/79),...
+                    floor(currentMass/35),...
+                    floor(currentMass/19),...
+                    floor(currentMass/127),...
+                    floor(currentMass/14),...
+                    floor(currentMass/16),...
+                    floor(currentMass/31),...
+                    floor(currentMass/32)];
 
                 maxCounts(3) = elementHits.Br.count;
                 maxCounts(4) = elementHits.Cl.count;
@@ -1362,12 +1362,19 @@ classdef RawData
 
                 %filter nonsensical decompositions
                 [evaluation,decomposition] = evaluateDecompositions(decomposition, currentMass);
+                if isempty(decomposition)
+                    continue
+                end
                 % compare feature isotope distribution to formula
                 % distribution
-                bestFitIndex = findBestMatchingFormulaByIsotopeDistribution(decomposition,featureStruct(iFeature).isotopePattern);
-                
+                scores = findBestMatchingFormulaByIsotopeDistribution(decomposition,featureStruct(iFeature).isotopePattern,toleranceAdjusted);
+                evaluation(scores < MINSCORE,:) = [];
+                scores(scores < MINSCORE,:) = [];
                 if ~isempty(evaluation)
+                    [~,order] = sort(scores,"descend");
+                    evaluation = evaluation(order,:);
                     featureStruct(iFeature).formulaEvaluation = evaluation;
+                    featureStruct(iFeature).formula = evaluation.Formula(1);
                 end
             end
         end
@@ -1599,13 +1606,15 @@ classdef RawData
                     idtoKeep = unique(idtoKeep);
                     idtoSplit = compoundScores(compoundScores(:,1) < MINSCORE,2:3);
                     idtoSplit = unique(idtoSplit);
-                    id = any(idtoSplit == idtoKeep,1);
-                    idtoSplit(id) = [];
-
+                    if ~isempty(idtoKeep) & ~isempty(idtoKeep)
+                        id = any(idtoSplit == idtoKeep,1);
+                        idtoSplit(id) = [];
+                    end
                     %check number of Peaks to remove
                     if isempty(idtoSplit)       %none, because of overlap
                         continue
                     elseif isempty(idtoKeep)    %all, keep first entry remove the rest
+
                         idtoSplit(1) = [];
                     end
 
@@ -1633,6 +1642,8 @@ classdef RawData
                     FeatureStruct(iFeature).chargeState = 0;
                 end
             end
+            % filter features without isotope pattern
+            FeatureStruct([FeatureStruct.chargeState] == 0) = [];
         end
 
         function FeatureStruct = correctMassByChargeState(FeatureStruct)

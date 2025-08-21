@@ -67,6 +67,8 @@ FeatureIn.entropy(idToSplit) = NaN;
 FeatureIn.XIC(idToSplit) = cell(1);
 FeatureIn.spectrumMS1(idToSplit) = cell(1);
 FeatureIn.spectrumMS2(idToSplit) = cell(1);
+FeatureIn.isotopePattern(idToSplit) = cell(1);
+FeatureIn.chargeState(idToSplit) = 0;
 FeatureIn.retentionTime = mean(FeatureIn.retentionTimes,"all","omitmissing");
 
 %append
