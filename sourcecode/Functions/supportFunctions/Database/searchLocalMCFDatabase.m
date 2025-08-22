@@ -16,7 +16,7 @@ parfor iFeature = 1:FeatureStruct.dataSize
     featureSpectrum = FeatureStruct.feature(iFeature).spectrumMS2;
     featureSpectrum(:,1) = round(featureSpectrum(:,1));
 
-    maxScore = zeros(height(dataBaseTable),1);
+    allScores = zeros(height(dataBaseTable),1);
 
     for jEntry = 1:height(dataBaseSpectra)
         databaseSpectrum = dataBaseSpectra(jEntry);
@@ -25,9 +25,9 @@ parfor iFeature = 1:FeatureStruct.dataSize
         alignedSpectra = alignSpectra(spectraCells,"normal","low","true",0.05);
         %composite score
         compositScore = calculateCompositeScore(alignedSpectra(:,2),alignedSpectra(:,3));
-        maxScore(jEntry) = compositScore;
+        allScores(jEntry) = compositScore;
     end
-    [score,ID] = max(maxScore);
+    [score,ID] = max(allScores);
     scoreArray(iFeature) = score;
     compoundStringArray(iFeature) = dataBaseTable.NAME(ID);
     formulaStringArray(iFeature) = dataBaseTable.FORMULA(ID);

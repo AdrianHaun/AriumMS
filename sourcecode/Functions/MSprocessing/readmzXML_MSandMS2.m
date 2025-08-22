@@ -1,4 +1,4 @@
-function [ScanDataMS1,ScanDataMS2] = readmzXML_MSandMS2(DataPath)
+function [ScanDataMS1,ScanDataMS2] = readmzXML_MSandMS2(dataPath)
 %% reads mzXML files and outputs mz, Intensity and time data
 % .mzXML files can be 32bit and 64bit encoded and can use zlib compression
 % Input: DataPath: data path to .mzXML file
@@ -10,7 +10,7 @@ function [ScanDataMS1,ScanDataMS2] = readmzXML_MSandMS2(DataPath)
 % mass, fragmentation energy and fragmentation type
 
 arguments
-    DataPath            (1,1) string
+    dataPath            (1,1) string {mustBeFile}
 end
 
 ScanDataMS1 = struct('profileDataMS1',[],...
@@ -25,7 +25,12 @@ ScanDataMS2 = struct('profileDataMS2',[],...
     'fragmentationType',[]);
 
 [~,~,endian] = computer;
-doc = xmlread(DataPath);
+%check for empty datafile
+try doc = xmlread(dataPath);
+    
+catch exception
+    error('readmzXML_MSandMS2:emptyFile', 'Data file is empty or corrupt')   
+end
 %get number of scans
 %Find the msRun element
 msRunNode = doc.getElementsByTagName('msRun').item(0);
@@ -37,7 +42,7 @@ if ~isempty(msRunNode)
     % Find the scan element
     scanNodes = doc.getElementsByTagName('scan');
 else
-    error("Corrupt or empty file.")
+    error("readmzXML_MSandMS2:emptyFile", "Data file is empty or corrupt")   
 end
 
 % Initialize arrays to store extracted values

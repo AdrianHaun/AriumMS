@@ -5,7 +5,7 @@ function [FileInfo,retentionTimes,TIC,BPC,polarity] = mzXMLinfo(dataPath)
 %NumberOf Scans, StartTime, EndTime. Start and End times are in seconds
 
 arguments
-    dataPath  (1,1) string
+    dataPath  (1,1) string {mustBeFile}
 end
 
 FileInfo =  struct('numberOfScansMS1',[],...
@@ -15,7 +15,13 @@ FileInfo =  struct('numberOfScansMS1',[],...
                 'scanFrequenceMS1',[],...
                 'scanFrequenceMS2',[]);
 
-doc = xmlread(dataPath);
+%check for empty datafile
+try doc = xmlread(dataPath);
+    
+catch exception
+    error('mzXMLinfo:emptyFile', 'Data file is empty or corrupt')   
+end
+
 msRunNode = doc.getElementsByTagName('msRun').item(0);
 % Check if the msRun element exists
 if ~isempty(msRunNode)

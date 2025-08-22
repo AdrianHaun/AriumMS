@@ -26,11 +26,17 @@ scanDataMS2 = struct('profileDataMS2',[],...
     'fragmentationEnergy',[],...
     'fragmentationType',[]);
 
-doc = xmlread(dataPath);
+%check for empty datafile
+try doc = xmlread(dataPath);
+    
+catch exception
+    error('readmzML_MSandMS2:emptyFile', 'Data file is empty or corrupt')   
+end
+
 spectrumList = doc.getElementsByTagName('spectrumList').item(0);
 % Check if the spectrum element exists
 if isempty(spectrumList)
-    error("Corrupt or empty file.")
+    error('readmzML_MSandMS2:emptyFile', 'Data file is empty or corrupt')
 else
     % Get the value of the scanCount attribute
     scanCountValue = str2double(spectrumList.getAttribute('count'));
@@ -105,9 +111,18 @@ for i = 0:spectrumNodes.getLength - 1
     spectrumElement = spectrumNodes.item(i);
     % Extract msLevel and retentionTime attributes from the scan element
     ScanInfos = spectrumElement.getElementsByTagName('cvParam');
-    polarity(i+1) = string(ScanInfos.item(2).getAttribute('name'));
-    % find ms level value
+    
+    % find polarity value
     maxCount = ScanInfos.getLength-1;
+    counter = 0;
+    item = "";
+    while item ~= "MS:1000130" && counter <= maxCount
+        item = string(ScanInfos.item(counter).getAttribute('accession'));
+        counter = counter + 1;
+    end
+    polarity(i+1) = string(ScanInfos.item(counter-1).getAttribute('name'));
+    
+    % find ms level value
     counter = 0;
     item = "";
     while item ~= "ms level" && counter <= maxCount

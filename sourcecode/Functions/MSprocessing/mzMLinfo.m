@@ -5,7 +5,7 @@ function [FileInfo,retentionTimes,TIC,BPC,polarity] = mzMLinfo(dataPath)
 %NumberOf Scans, StartTime, EndTime. Start and End times are in seconds
 
 arguments
-    dataPath  (1,1) string
+    dataPath  (1,1) string {mustBeFile}
 end
 
 FileInfo =  struct('numberOfScansMS1',[],...
@@ -15,7 +15,14 @@ FileInfo =  struct('numberOfScansMS1',[],...
                 'scanFrequenceMS1',[],...
                 'scanFrequenceMS2',[]);
 
-doc = xmlread(dataPath);
+%check for empty datafile
+try doc = xmlread(dataPath);
+    
+catch exception
+    error('mzMLinfo:emptyFile', 'Data file is empty or corrupt')   
+end
+
+
 spectrumList = doc.getElementsByTagName('spectrumList').item(0);
 % Check if the spectrum element exists
 if ~isempty(spectrumList)
