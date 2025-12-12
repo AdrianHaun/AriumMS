@@ -3,7 +3,6 @@ classdef MainOptions
 
     properties
         Container
-        BlankTickBox
         PeakAlignmentTickBox
         MSAlignmentTickBox
         BaseCorrTickBox
@@ -27,13 +26,6 @@ classdef MainOptions
                     Position=[10,235,220,320],...
                     BackgroundColor=[0.90,0.90,0.90],Enable="off",...
                     Tooltip="Main settings. Activating an option activates the corresponding panel.");
-
-
-                obj.BlankTickBox = uicheckbox(obj.Container,...
-                    "Value",CallingData.useBlankSubtraction,...
-                    "Position",[35,228,175,20],...
-                    "Text","Blank Subtraction",...
-                    Tooltip="Activates the subtraction of blank files. If several blanks are selected, an average is generated first.");
 
                 obj.PeakAlignmentTickBox = uicheckbox(obj.Container,...
                     "Value",CallingData.usePeakAlign,...
@@ -89,8 +81,6 @@ classdef MainOptions
                     "Text","Common Contaminant Filter",...
                     Tooltip="Removes all features with masses listed in the UWPR Common Mass Spec Contaminants list.");
 
-                %% add callbacks
-                obj.BlankTickBox.ValueChangedFcn = {@useBlankChange,CallingData};
             end
         end
 

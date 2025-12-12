@@ -11,10 +11,10 @@ classdef RawData
         %% Processing Parameters
         fileName    (:,1) string
         dataFile    (:,1) string
-        blankFile   (:,1) string
+        fileType    (:,1) string
         groupName   (1,1) string
+        ionisationType (1,1) string {mustBeMember(ionisationType,["Soft","Hard"])} = "Soft"
         % Main Processing Options
-        useBlankSubtraction   (1,1) logical = false
         useSmoothing          (1,1) logical = false
         useBaselineCorrection (1,1) logical = false
         useIsotopeFilter      (1,1) logical = false
@@ -125,7 +125,7 @@ classdef RawData
         function obj = dataFileCheck(obj)
             % Check Data, number of Scans, Start/End Times
             %Check minimum number of scans
-            fileArray = [obj.dataFile;obj.blankFile];
+            fileArray = obj.dataFile;
             %remove empty
             idx = cellfun(@isempty,fileArray);
             fileArray(idx) = [];
@@ -183,7 +183,7 @@ classdef RawData
             obj.measurementEndTime = round(max([FileInfo.endTime]),1);
         end
 
-        function obj = readData(obj,dataFile,separationType)
+        function obj = readData(obj,dataFile,ionisationType)
             nFile = size(dataFile,1);
             %preallocation
             DataMS1 = cell(nFile,1);
@@ -202,21 +202,12 @@ classdef RawData
                 end
 
                 % pre-process raw data
-                switch separationType
-                    case "GC"
+                switch ionisationType
+                    case "Hard"
                         %centroid profile data
                         DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
                         DataMS1{iFile,1} = removeEmptyScans(DataMS1{iFile,1});
                     otherwise
-                        %convert MS1 and MS2 precursor to molecular mass
-                        DataMS1{iFile,1}.profileDataMS1 = convertScans2MolecularMass(DataMS1{iFile,1}.profileDataMS1,DataMS1{iFile,1}.polarityMS1);
-                        DataMS2{iFile,1}.profileDataMS2 = convertScans2MolecularMass(DataMS2{iFile,1}.profileDataMS2,DataMS2{iFile,1}.polarityMS2);
-                        precursors = DataMS2{iFile,1}.precursorMass;
-                        modifier = ones(size(precursors))*1.007825;
-                        idx = DataMS2{iFile,1}.polarityMS2 == "+";
-                        modifier(idx) = modifier(idx)*-1;
-                        DataMS2{iFile,1}.precursorMassCorrected = precursors + modifier;
-
                         %denoise profile data
                         DataMS1{iFile,1}.profileDataMS1 = denoiseScans(DataMS1{iFile,1}.profileDataMS1,"variable");
                         %centroid MS1
@@ -254,13 +245,981 @@ classdef RawData
         end
 
         %% Data Processing
-        function obj = averageBlankFiles(obj)
+        function [Output,obj] = extractFeaturesFromMassData(obj,varargin)
+            %check if old results exist and delete them
+            if isfile(obj.ROIDataFile)
+                delete(obj.ROIDataFile)
+            end
+
+            if numel(varargin) == 2
+                mode = varargin{1};
+                bayesOptions = varargin{2};
+                obj = obj.setOptimizationOptions(mode,bayesOptions);
+            elseif isscalar(varargin)
+                error("Wrong number of inputs")
+            else
+                title = "Processing " + obj.groupName;
+                progressBar = uiprogressdlg(obj.mainWindow,"Title",title,"Message","Preparation",Value=0);
+            end
+
+            fileArray = obj.dataFile;
+            %remove possible empty
+            iFile = cellfun(@isempty,fileArray);
+            fileArray(iFile) = [];
+
+            % gather measurement type from file name
+            obj.fileType = obj.identifyMeasurementType(fileArray);
+
+            progressBar.Message = "Loading files";
+            %check if files already loaded then skip loading stage
+            test = obj.RawDataFileObj.centroidDataMS1;
+            if isempty(test{1,1}) || size(obj.fileName,1) ~= height(test)
+                obj = obj.readData(fileArray,obj.ionisationType);
+            end
+
+            clearvars test fileArray id
+
+            %build TempDataFile
+            obj.TempDataFile = tempname +".mat";
+            obj.TempDataFileObj = matfile(obj.TempDataFile,Writable=true);
+            %predefine Variables in .mat file
+            obj.TempDataFileObj.ROICells  = {[]};
+            obj.TempDataFileObj.TimeCells  = {[]};
+            obj.TempDataFileObj.ROIMat = [];
+            obj.TempDataFileObj.ROIMatBLK  = [];
+            obj.TempDataFileObj.ROImzVec = [];
+            obj.TempDataFileObj.timeVec  = [];
+
+            %remove scans outside RT range
+            obj = obj.cutScansToSize;
+            obj.nScan = cellfun(@numel,obj.TempDataFileObj.TimeCells);
+            progressBar.Value = 0.33;
+
+            switch obj.ionisationType
+                case "Hard"
+                    [Output,obj] = obj.extractFeatures_HardIonisation;
+                case "Soft"
+                    [Output,obj] = obj.extractFeatures_SoftIonisation;
+            end
+
+            %processing cleanup
+            if ~exist("mode","var") %save ROI results if batch mode
+                %build ResultDataFile
+                obj.ROIDataFileObj = matfile(obj.ROIDataFile,Writable=true);
+                %store Results
+                obj.ROIDataFileObj.ROIMat = obj.TempDataFileObj.ROIMat;
+                obj.ROIDataFileObj.ROIMatBLK  = obj.TempDataFileObj.ROIMatBLK;
+                obj.ROIDataFileObj.ROImzVec = obj.TempDataFileObj.ROImzVec;
+                obj.ROIDataFileObj.timeVec  = obj.TempDataFileObj.timeVec;
+            end
+            %delete Temporary file
+            delete(obj.TempDataFile)
+            obj.TempDataFile = "";
+            close(progressBar)
+        end
+        %% Soft Ionisation Functions
+        function [Output,obj] = extractFeatures_SoftIonisation(obj)
+            % remove isotopes
+            if obj.useIsotopeFilter == true
+                progressBar.Message = "Removing Isotopes";
+                obj = obj.filterIsotopes;
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            if obj.useMassAlign == true
+                progressBar.Message = "Aligning MS Scans";
+                obj = obj.alignMasses("batch");
+                progressBar.Value = 0.4;
+            end
+
+            % ROI Search
+            progressBar.Message = "Searching for ROIs";
+            obj = obj.findRegionOfInterest("batch");
+            progressBar.Value = 0.5;
+
+            % Average BLK
+            if obj.useBlankSubtraction == true && nBlanks > 1
+                obj = obj.averageBlankFiles;
+                nData = size(obj.TempDataFileObj.ROICells,1); % update number of matrices
+            end
+
+            %Common Contaminant filter
+            if obj.useContaminantFilter == true
+                progressBar.Message = "Removing Contaminants";
+                obj = obj.removeContaminants;
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            % Baseline Correction
+            if obj.useBaselineCorrection == true
+                progressBar.Message = "Correcting Baseline";
+                obj = obj.correctBaseline("batch");
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            % Smoothing
+            if obj.useSmoothing == true
+                progressBar.Message = "Smoothing Peaks";
+                obj = obj.smoothPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            % Peak Align
+            if obj.usePeakAlign == true && nData > 1
+                progressBar.Message = "Aligning Peaks";
+                obj = obj.alignPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            if obj.useBlankSubtraction == true % Separate Blank data from Sample data
+                tempBLK = obj.TempDataFileObj.ROICells(end,1);
+                obj.TempDataFileObj.ROIMatBLK = sparse(tempBLK{:});
+                obj.TempDataFileObj.ROICells(end) = [];
+                obj.TempDataFileObj.TimeCells(end) = [];
+            end
+
+            % subtract blank before IS normalization
+            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "BlankIS"
+                progressBar.Message = "Subtracting Blank";
+                peakCells = obj.TempDataFileObj.ROICells;
+                blankMat = obj.TempDataFileObj.ROIMatBLK;
+                parfor iFile = 1:size(peakCells,1)
+                    peakCells{iFile,1} = peakCells{iFile,1}-blankMat;
+                    % set possible negative values to 0
+                    peakCells{iFile,1} = max(peakCells{iFile,1},0);
+                end
+                obj.TempDataFileObj.ROICells = peakCells;
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+            % pad arrays with Maximum peak width*1.5 Scans to eliminate
+            % integration interference between matrices
+            obj = obj.finalizeROI;
+
+            clearvars -except obj progressBar
+            %% Integration Stage
+            % Find and Integrate IS separate
+            if obj.useInternalStandard == true
+                progressBar.Message = "Searching for Internal Standard";
+                obj = obj.identifyInternalStandard;
+                if ~isempty(obj.internalStandardData)
+                    obj = obj.internalStandardNormalization;
+                end
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+            % BLK Subtraction after IS Correction
+            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "ISBlank"
+                progressBar.Message = "Subtracting Blank";
+                roiDataFile = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
+                roiDataBlank = obj.TempDataFileObj.ROIMatBLK;
+                parfor iFile = 1:size(roiDataFile,1)
+                    roiDataFile{iFile,1} = roiDataFile{iFile,1}-padarray(roiDataBlank,size(roiDataFile{iFile,1},1)-size(roiDataBlank,1),0,'post');
+                end
+                roiDataFile = vertcat(roiDataFile{:});
+                roiDataFile = max(roiDataFile,0);
+                hasPeak = any(roiDataFile == 0,1);
+                obj.TempDataFileObj.ROIMat = roiDataFile(:,hasPeak);
+                obj.TempDataFileObj.ROImzVec(:,~hasPeak) = [];
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+            % mass correction
+            if obj.useISMassCorrection == true && ~isempty(obj.internalStandardMassDelta)
+                progressBar.Message = "Performing IS mass correction";
+                obj = obj.massCorrectionByInternalStandard;
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            % Integrate all Peaks
+            IDX = true(1,size(obj.TempDataFileObj.ROIMat,2));
+            progressBar.Message = "Integrating Peaks";
+            IntegrationData = obj.findPeaks_Soft(IDX);
+            progressBar.Value = 0.9;
+
+            progressBar.Message = "Processing found Features";
+            IntegrationData = obj.assignFileID(IntegrationData);
+            IntegrationData = obj.fileSortPeaks(IntegrationData);
+
+
+            %%%%%%%
+            % % remove adducts
+            % if obj.useAdductFilter == true
+            %     [IntegrationData,obj] = obj.filterAdducts(IntegrationData);
+            % end
+            %%%%%%%
+
+            % build output Struct and store number of removed peaks per
+            % filter
+            Output = obj.initializeOutputStruct(IntegrationData);
+
+            % Build Storage Arrays and filter by number of occurrences
+            [FeatureData,obj] = obj.buildFeatureArray(IntegrationData);
+            clearvars IntegrationData IDX
+
+            % apply scaling
+            if obj.useScaling == true
+                progressBar.Message = "Apply scaling";
+                FeatureData = obj.groupAndSampleScaling(FeatureData);
+            end
+
+            %fill remaining fields
+            Output = obj.finalizeOutputStruct(Output,FeatureData);
+
+            progressBar.Message = "Group processing successful";
+            progressBar.Value = 1;
+
+            obj.Output = Output;
+        end
+
+        function IntegrationResults = findPeaks_Soft(obj,Index)
+            %gather data
+            roiMat = obj.TempDataFileObj.ROIMat;
+            roiMat = roiMat(:,Index);
+            mzValueArray = obj.TempDataFileObj.ROImzVec;
+            timeArray = obj.TempDataFileObj.timeVec;
+            minPeakWidthScans = floor(obj.peakMinWidth/obj.scanFrequencySecond);
+
+            % calculate EIC derivatives and store as sparse
+            smoothed = smoothdata(roiMat,"gaussian","omitnan","SmoothingFactor",0.1);
+            Diff2 = zeros(length(timeArray),size(roiMat,2));
+            Diff2(1:end-2,:) = diff(smoothed,2);
+            nMass = size(roiMat,2);
+
+            % prepare wavelet filter-bank
+            FilterBank = cwtfilterbank("SignalLength",size(Diff2,1), ...
+                "WaveletParameters",[3 4], ...
+                "VoicesPerOctave",8, ...
+                "SamplingPeriod",seconds(obj.scanFrequencySecond), ...
+                "PeriodLimits",[seconds(obj.peakMinWidth) seconds(obj.peakMaxWidth)]);
+
+            %preallocate storage struct
+            IntegrationResults = struct( ...
+                "mass",[], ...
+                "peakLocation",[], ...
+                "peakRetentionTime",[], ...
+                "peakStartLocation",[], ...
+                "peakEndLocation",[], ...
+                "peakHeight",[], ...
+                "peakArea",[], ...
+                "entropy",[], ...
+                "signal2Noise",[], ...
+                "minWidthFiltered",[], ...
+                "maxWidthFiltered",[], ...
+                "entropyFiltered",[], ...
+                "signal2NoiseFiltered",[], ...
+                "XIC",[], ...
+                "fileID",[]);
+
+            IntegrationResults = repmat(IntegrationResults,nMass,1);
+
+            parfor iMass = 1:nMass
+                peakData = continuosWaveletPeakPicking(Diff2(:,iMass),smoothed(:,iMass),FilterBank);
+                currentEIC = roiMat(:,iMass);
+                % Correct Peak Borders
+                peakData = correctPeakData(peakData,currentEIC,smoothed(:,iMass),minPeakWidthScans);
+                IntegrationResults(iMass).mass = mzValueArray(iMass);
+                IntegrationResults(iMass).peakLocation = peakData(:,1);
+                IntegrationResults(iMass).peakStartLocation = peakData(:,2);
+                IntegrationResults(iMass).peakEndLocation = peakData(:,3);
+                IntegrationResults(iMass).peakHeight = peakData(:,4);
+                %store EIC
+                IntegrationResults(iMass).XIC = [timeArray,currentEIC];
+            end
+            %filter found peaks
+            noise = std(roiMat-smoothed);
+            IntegrationResults = obj.filterPeaksFromIntegration(IntegrationResults,noise);
+            IntegrationResults = obj.integratePeaks(IntegrationResults,timeArray);
+        end
+
+        function [FeatureResults,obj] = buildFeatureArray_Soft(obj,IntegrationResults,varargin)
+
+            FeatureResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
+            %check for empty IntegrationResults
+            if ~isempty(IntegrationResults)
+
+                nFiles = numel(obj.fileName);
+
+                EmptyStruct = struct(...
+                    "featID",strings,...
+                    "mass_measured",[],...
+                    "retentionTime",NaN,...
+                    "adductType",strings,...
+                    "mass_corrected",[],...
+                    "formula",strings,...
+                    "peakHeights",NaN(1,nFiles),...
+                    "peakAreas",NaN(1,nFiles),...
+                    "peakLocations",NaN(1,nFiles),...
+                    "peakBorders",NaN(2,nFiles),...
+                    "retentionTimes",NaN(1,nFiles),...
+                    "signal2Noise",NaN(1,nFiles),...
+                    "entropy",NaN(1,nFiles),...
+                    "XIC",cell(1),...
+                    "spectrumMS1",cell(1),...
+                    "spectrumMS2",cell(1),...
+                    "asymmetry",[]);
+                EmptyStruct.spectrumMS1 = cell(1,nFiles);
+                EmptyStruct.spectrumMS2 = cell(1,nFiles);
+                EmptyStruct.isotopePattern = cell(1,nFiles);
+                EmptyStruct.chargeState = NaN(1,nFiles);
+
+                storedFeatures = cell(length(FeatureResults),1);
+
+                %gather tolerances
+                timeTolerance = obj.peakTimeTolerance;
+
+                if isscalar(varargin)
+                    isISIntegration = true;
+                else
+                    isISIntegration = false;
+                end
+
+                %match features and store in feature struct
+
+                parfor iFeature = 1:length(FeatureResults)
+                    currentFeatureStruct = EmptyStruct;
+                    currentFeatureStruct.mass_measured = FeatureResults(iFeature).mass;
+                    currentFeatureStruct.XIC = FeatureResults(iFeature).XIC;
+
+                    nPeaks = numel(vertcat(FeatureResults(iFeature).peakLocation{:}));
+
+                    %unpack data
+                    peakData = zeros(nPeaks,10);
+                    peakData(:,1) = vertcat(FeatureResults(iFeature).peakLocation{:});
+                    peakData(:,2) = vertcat(FeatureResults(iFeature).peakRetentionTime{:});
+                    peakData(:,3) = vertcat(FeatureResults(iFeature).peakStartLocation{:});
+                    peakData(:,4) = vertcat(FeatureResults(iFeature).peakEndLocation{:});
+                    peakData(:,5) = vertcat(FeatureResults(iFeature).peakHeight{:});
+                    peakData(:,6) = vertcat(FeatureResults(iFeature).peakArea{:});
+                    peakData(:,7) = vertcat(FeatureResults(iFeature).entropy{:});
+                    peakData(:,8) = vertcat(FeatureResults(iFeature).signal2Noise{:});
+                    peakData(:,9) = vertcat(FeatureResults(iFeature).fileID{:});
+                    peakData(:,10) = (peakData(:,4)-peakData(:,1))./(peakData(:,1)-peakData(:,3)); %asymmetry factor
+
+                    % preallocate current feature Storage
+                    currentFeatureStruct = repmat(currentFeatureStruct,height(peakData),1);
+
+                    %store first new entry
+                    currentFile = peakData(1,9);
+                    currentFeatureStruct(1).peakLocations(currentFile) = peakData(1,1);
+                    currentFeatureStruct(1).retentionTimes(currentFile) = peakData(1,2);
+                    currentFeatureStruct(1).retentionTime = peakData(1,2);
+                    currentFeatureStruct(1).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                    currentFeatureStruct(1).peakHeights(currentFile) = peakData(1,5);
+                    currentFeatureStruct(1).peakAreas(currentFile) = peakData(1,6);
+                    currentFeatureStruct(1).entropy(currentFile) = peakData(1,7);
+                    currentFeatureStruct(1).signal2Noise(currentFile) = peakData(1,8);
+                    currentFeatureStruct(1).asymmetry = peakData(1,10);
+                    peakData(1,:) = [];
+
+                    %assign remaining peaks to features
+                    while ~isempty(peakData)
+
+                        currentRT = peakData(1,2);
+                        currentFile = peakData(1,9);
+                        currentAsymmetry = peakData(1,10);
+                        id = abs(vertcat(currentFeatureStruct(:).retentionTime)-currentRT)<=timeTolerance;
+                        matchingRT = sum(id);
+
+                        if matchingRT == 0 %no matching RT -> new Feature
+                            currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
+
+                        elseif matchingRT == 1 %single feature -> store
+                            if isnan(currentFeatureStruct(id).peakLocations(currentFile)) %check if a peak is already present
+                                currentFeatureStruct(id).peakLocations(currentFile) = peakData(1,1);
+                                currentFeatureStruct(id).retentionTimes(currentFile) = peakData(1,2);
+                                currentFeatureStruct(id).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                                currentFeatureStruct(id).peakHeights(currentFile) = peakData(1,5);
+                                currentFeatureStruct(id).peakAreas(currentFile) = peakData(1,6);
+                                currentFeatureStruct(id).entropy(currentFile) = peakData(1,7);
+                                currentFeatureStruct(id).signal2Noise(currentFile) = peakData(1,8);
+                                %average retentionTime
+                                currentFeatureStruct(id).retentionTime = mean([currentFeatureStruct(id).retentionTime;peakData(1,2)],'omitnan');
+                            else
+                                currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
+                            end
+
+                        else %multiple matching features -> store based on asymmetry factor
+                            [~,idA] = min(vertcat(currentFeatureStruct(id).asymmetry)-currentAsymmetry);
+                            if isnan(currentFeatureStruct(idA).peakLocations(currentFile)) %check if a peak is already present
+                                currentFeatureStruct(idA).peakLocations(currentFile) = peakData(1,1);
+                                currentFeatureStruct(idA).retentionTimes(currentFile) = peakData(1,2);
+                                currentFeatureStruct(idA).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                                currentFeatureStruct(idA).peakHeights(currentFile) = peakData(1,5);
+                                currentFeatureStruct(idA).peakAreas(currentFile) = peakData(1,6);
+                                currentFeatureStruct(idA).entropy(currentFile) = peakData(1,7);
+                                currentFeatureStruct(idA).signal2Noise(currentFile) = peakData(1,8);
+                                %average retentionTime
+                                currentFeatureStruct(idA).retentionTime = mean([currentFeatureStruct(idA).retentionTime;peakData(1,2)],'omitnan');
+                            else
+                                currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
+                            end
+                        end
+                        %remove stored peak from list
+                        peakData(1,:) = [];
+                    end
+
+                    %remove empty struct
+                    id = isnan([currentFeatureStruct(:).retentionTime])';
+                    currentFeatureStruct(id) = [];
+
+                    %store currentFeatureStruct
+                    storedFeatures{iFeature,1} = currentFeatureStruct;
+                end
+
+                %unzip features
+                storedFeatures = vertcat(storedFeatures{:});
+                %remove asymmetry field
+                storedFeatures = rmfield(storedFeatures,"asymmetry");
+                if isISIntegration == false
+                    %gather original scans
+                    storedFeatures = obj.findOriginalMassScans(storedFeatures);
+                    % trim XIC to relevant parts
+                    storedFeatures = obj.trimExtractedIonChromatograms(storedFeatures);
+                    % extract isotope distribution
+                    storedFeatures = obj.gatherIsotopeDistributions(storedFeatures);
+                    % confirm same feature
+                    storedFeatures = obj.confirmSameFeatureByIsotopeDistribution(storedFeatures);
+                    % Occurrence filter
+                    [storedFeatures,obj.occurenceFiltered] = obj.occurrenceFilterFeatures(storedFeatures);
+                    % build feature isotope pattern
+                    storedFeatures = obj.averageIsotopePattern(storedFeatures);
+                    storedFeatures = obj.correctMassByChargeState(storedFeatures);
+                    % gather MS2 scans
+                    storedFeatures = obj.gatherMS2Spectra(storedFeatures);
+                end
+
+                FeatureResults = storedFeatures;
+            else
+                FeatureResults = IntegrationResults;
+            end
+        end
+
+        %% Hard Ionisation Functions
+        function [Output,obj] = extractFeatures_HardIonisation(obj)
+
+
+            if obj.useMassAlign == true
+                progressBar.Message = "Aligning MS Scans";
+                obj = obj.alignMasses("batch");
+                progressBar.Value = 0.4;
+            end
+
+            % ROI Search
+            progressBar.Message = "Searching for ROIs";
+            obj = obj.findRegionOfInterest("batch");
+            progressBar.Value = 0.5;
+
+            % Average BLK
+            if obj.useBlankSubtraction == true && nBlanks > 1
+                obj = obj.averageBlankFiles;
+                nData = size(obj.TempDataFileObj.ROICells,1); % update number of matrices
+            end
+
+            % Baseline Correction
+            if obj.useBaselineCorrection == true
+                progressBar.Message = "Correcting Baseline";
+                obj = obj.correctBaseline("batch");
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+            % Smoothing
+            if obj.useSmoothing == true
+                progressBar.Message = "Smoothing Peaks";
+                obj = obj.smoothPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            % Peak Align
+            if obj.usePeakAlign == true && nData > 1
+                progressBar.Message = "Aligning Peaks";
+                obj = obj.alignPeaks("batch");
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            if obj.useBlankSubtraction == true % Separate Blank data from Sample data
+                tempBLK = obj.TempDataFileObj.ROICells(end,1);
+                obj.TempDataFileObj.ROIMatBLK = sparse(tempBLK{:});
+                obj.TempDataFileObj.ROICells(end) = [];
+                obj.TempDataFileObj.TimeCells(end) = [];
+            end
+
+            % subtract blank before IS normalization
+            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "BlankIS"
+                progressBar.Message = "Subtracting Blank";
+                peakCells = obj.TempDataFileObj.ROICells;
+                blankMat = obj.TempDataFileObj.ROIMatBLK;
+                parfor iFile = 1:size(peakCells,1)
+                    peakCells{iFile,1} = peakCells{iFile,1}-blankMat;
+                    % set possible negative values to 0
+                    peakCells{iFile,1} = max(peakCells{iFile,1},0);
+                end
+                obj.TempDataFileObj.ROICells = peakCells;
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+            % pad arrays with Maximum peak width*3 Scans to eliminate
+            % integration interference between matrices
+            obj = obj.finalizeROI;
+
+            clearvars -except obj progressBar
+            %% Integration Stage
+            % Find and Integrate IS separate
+            if obj.useInternalStandard == true
+                progressBar.Message = "Searching for Internal Standard";
+                obj = obj.identifyInternalStandard;
+                if ~isempty(obj.internalStandardData)
+                    obj = obj.internalStandardNormalization;
+                end
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+            % BLK Subtraction after IS Correction
+            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "ISBlank"
+                progressBar.Message = "Subtracting Blank";
+                roiDataFile = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
+                roiDataBlank = obj.TempDataFileObj.ROIMatBLK;
+                parfor iFile = 1:size(roiDataFile,1)
+                    roiDataFile{iFile,1} = roiDataFile{iFile,1}-padarray(roiDataBlank,size(roiDataFile{iFile,1},1)-size(roiDataBlank,1),0,'post');
+                end
+                roiDataFile = vertcat(roiDataFile{:});
+                roiDataFile = max(roiDataFile,0);
+                id = all(roiDataFile >= obj.roiThreshold,1);
+                obj.TempDataFileObj.ROIMat = roiDataFile(:,id);
+                obj.TempDataFileObj.ROImzVec(:,~id) = [];
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+            % mass correction
+            if obj.useInternalStandard == true && ~isempty(obj.interalStandardIntensity)
+                progressBar.Message = "Performing IS mass correction";
+                obj = obj.massCorrectionByInternalStandard;
+                progressBar.Value = progressBar.Value + 0.05;
+            end
+
+            % Integrate all Peaks
+            progressBar.Message = "Picking Peaks";
+            IntegrationData = obj.findPeaks_Hard;
+            progressBar.Value = 0.9;
+
+            progressBar.Message = "Processing found Features";
+            IntegrationData = obj.gatherEISpectra(IntegrationData);
+            IntegrationData = obj.assignFileID(IntegrationData);
+            IntegrationData = obj.fileSortPeaks(IntegrationData);
+            IntegrationData = obj.mergeDuplicatePeaksWithinFile(IntegrationData);
+
+            Output = obj.initializeOutputStruct(IntegrationData);
+            % Build Storage Arrays
+            FeatureData = obj.buildFeatureArray_Hard(IntegrationData);
+
+            % confirm same feature by MS2 comparison
+            FeatureData = obj.confirmSameFeatureByMS2(FeatureData);
+
+            % Occurrence filter
+            [FeatureData,obj.occurenceFiltered] = obj.occurrenceFilterFeatures(FeatureData);
+
+            %build average EI (MS2) spectrum
+            FeatureData = obj.finalizeEISpectra(FeatureData);
+            progressBar.Value = 0.95;
+
+            %apply scaling
+            if obj.useScaling == true
+                progressBar.Message = "Apply scaling";
+                FeatureData = obj.groupAndSampleScaling(FeatureData);
+            end
+
+            %fill remaining fields
+            Output = obj.finalizeOutputStruct(Output,FeatureData);
+            progressBar.Message = "Group processing successful";
+            progressBar.Value = 1;
+
+            obj.Output = Output;
+        end
+
+        function IntegrationResults = findPeaks_Hard(obj)
+            %output preallocation
+            IntegrationResults = struct( ...
+                "mass",[], ...
+                "peakLocation",[], ...
+                "peakRetentionTime",[], ...
+                "peakStartLocation",[], ...
+                "peakEndLocation",[], ...
+                "peakHeight",[], ...
+                "peakArea",[], ...
+                "entropy",[], ...
+                "signal2Noise",[], ...
+                "minWidthFiltered",[], ...
+                "maxWidthFiltered",[], ...
+                "entropyFiltered",[], ...
+                "signal2NoiseFiltered",[], ...
+                "spectrumMS2",[], ...
+                "XIC",[], ...
+                "fileID",[]);
+
+            %prepare TIC Data
+            tics = sum(obj.TempDataFileObj.ROIMat,2);
+            times = obj.TempDataFileObj.timeVec;
+            IntegrationResults.XIC = [times,tics];
+            %gather parameters
+            currentTIC = full(tics);
+            currentTime = full(times);
+            smoothedTIC = smoothdata(currentTIC,"gaussian",4,"omitnan");
+            minPeakWidthScans = floor(obj.peakMinWidth/obj.scanFrequencySecond);
+            %calculate noise level (10th percentile of non zero values)
+            noise = prctile(currentTIC(currentTIC > 0),10);
+            [~,peakLoc,peakWidth] = findpeaks(currentTIC,"WidthReference","halfheight");
+            %calculate initial borders and bring in correct form
+            lowerBorders = max(floor(peakLoc-peakWidth/2),1); % limit lower peak border to scan 1
+            upperBorders = min(ceil(peakLoc+peakWidth/2),numel(currentTIC)); % limit upper peak border to last scan
+            peakData = [peakLoc,lowerBorders,upperBorders];
+            peakData = correctPeakData(peakData,currentTIC,smoothedTIC,minPeakWidthScans);
+            IntegrationResults.peakLocation = peakData(:,1);
+            IntegrationResults.peakStartLocation = peakData(:,2);
+            IntegrationResults.peakEndLocation = peakData(:,3);
+            IntegrationResults.peakHeight = peakData(:,4);
+            IntegrationResults = obj.filterPeaksFromIntegration(IntegrationResults,noise);
+            % entropy calculation
+            IntegrationResults = obj.calculatePeakEntropy(IntegrationResults);
+            IntegrationResults = obj.integratePeaks(IntegrationResults,currentTime);
+        end
+
+        function FeatureData = buildFeatureArray_Hard(obj,IntegrationResults,varargin)
+            nFiles = numel(obj.fileName);
+
+            xicData = IntegrationResults(1).XIC;
+
+            %remove unnecessary fields from input struct
+            IntegrationResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered","XIC"]);
+
+            featureStruct = struct(...
+                "featID",strings,...
+                "mass_measured",[],...
+                "retentionTime",[],...
+                "adductType",strings,...
+                "mass_corrected",[],...
+                "formula",strings,...
+                "peakHeights",zeros(0,nFiles),...
+                "peakAreas",zeros(0,nFiles),...
+                "peakLocations",zeros(0,nFiles),...
+                "peakBorders",zeros(0,nFiles),...
+                "retentionTimes",zeros(0,nFiles),...
+                "signal2Noise",zeros(0,nFiles),...
+                "entropy",zeros(0,nFiles),...
+                "XIC",cell(1),...
+                "spectrumMS1",cell(1),...
+                "spectrumMS2",cell(1));
+
+            %gather tolerances
+            TIMETOLERANCE = obj.peakTimeTolerance;
+            MASSTOLERANCE = obj.betweenFileMassTolerance;
+            MASSUNIT = obj.betweenFileMassUnit;
+
+            if isscalar(varargin)
+                isISIntegration = true;
+            else
+                isISIntegration = false;
+            end
+
+            %match features and store in feature struct
+
+            uniqueFeatures = [vertcat(IntegrationResults(:).mass),vertcat(IntegrationResults(:).peakRetentionTime)];
+
+            % over preallocat feature Storage
+            featureStruct = repmat(featureStruct,height(uniqueFeatures),1);
+            counter = 0;
+            while ~isempty(uniqueFeatures)
+                counter = counter + 1;
+                currentFeature = uniqueFeatures(1,:);
+                % preallocate temp storage
+                emptyArray = NaN(1,nFiles);
+                areas = emptyArray;
+                heights = emptyArray;
+                retentionTimes = emptyArray;
+                peakLocation = emptyArray;
+                peakBorders = [emptyArray;emptyArray];
+                signal2Noise = emptyArray;
+                entropy = emptyArray;
+                spectrum = cell(1,nFiles);
+                xic = cell(1,nFiles);
+
+                %compare feature between files
+                for iFile = 1:nFiles
+                    switch MASSUNIT
+                        case "Da"
+                            idm = abs(IntegrationResults(iFile).mass-currentFeature(1,1)) <= MASSTOLERANCE;
+                        case "ppm"
+                            idm = abs(IntegrationResults(iFile).mass-currentFeature(1,1))./currentFeature(1,1)*10^6 <= MASSTOLERANCE;
+                    end
+                    idRT = abs(IntegrationResults(iFile).peakRetentionTime - currentFeature(1,2)) <= TIMETOLERANCE;
+                    idx = idm & idRT;
+                    % handle matching peaks
+                    if sum(idx) == 0 %no matching peaks
+                        continue
+
+                    elseif sum(idx) == 1 && ~all(isnan(peakLocation)) %compare spectra if already peak stored in feature
+                        %build current average spectrum
+                        currentSpectrum = alignSpectra(spectrum,"average","low","true");
+                        %gather possible spectra
+                        possibleSpectra = IntegrationResults(iFile).spectrumMS2(idx);
+                        possibleSpectra = alignSpectra(possibleSpectra,"normal","low","true");
+                        %calculate scores
+                        [CompoundScores,~] = scoresBetweenSets(currentSpectrum,possibleSpectra);
+                        if all(CompoundScores(:,1) < 700) %features don´t match
+                            continue
+                        end
+
+                    elseif sum(idx) > 1 %use feat with higher Similarity score
+                        %build current average spectrum
+                        currentSpectrum = alignSpectra(spectrum,"average","low","true");
+                        %gather possible spectra
+                        possibleSpectra = IntegrationResults(iFile).spectrumMS2(idx);
+                        possibleSpectra = alignSpectra(possibleSpectra,"normal","low","true");
+                        %calculate scores
+                        [CompoundScores,~] = scoresBetweenSets(currentSpectrum,possibleSpectra);
+                        if all(CompoundScores(:,1) < 700) %no matching feature
+                            continue
+                        end
+                        %get id of feature with higher score
+                        idmax = CompoundScores(CompoundScores(:,1)==max(CompoundScores(:,1)),3);
+                        location = find(idx);
+                        idx = false(size(idx));
+                        idx(location(idmax)) = true;
+                    end
+                    %store found peak information
+                    areas(1,iFile) = IntegrationResults(iFile).peakArea(idx);
+                    heights(1,iFile) = IntegrationResults(iFile).peakHeight(idx);
+                    retentionTimes(1,iFile) = IntegrationResults(iFile).peakRetentionTime(idx);
+                    peakLocation(1,iFile) = IntegrationResults(iFile).peakLocation(idx);
+                    peakBorders(1,iFile) = IntegrationResults(iFile).peakStartLocation(idx);
+                    peakBorders(2,iFile) = IntegrationResults(iFile).peakEndLocation(idx);
+                    signal2Noise(1,iFile) = IntegrationResults(iFile).signal2Noise(idx);
+                    entropy(1,iFile) = IntegrationResults(iFile).entropy(idx);
+                    spectrum(1,iFile) = IntegrationResults(iFile).spectrumMS2(idx);
+                    xic{1,iFile} = full(xicData(peakBorders(1,iFile):peakBorders(2,iFile),:));
+
+                    %delete peaks from input struct
+                    IntegrationResults(iFile).mass(idx) = [];
+                    IntegrationResults(iFile).peakArea(idx) = [];
+                    IntegrationResults(iFile).peakHeight(idx) = [];
+                    IntegrationResults(iFile).peakRetentionTime(idx) = [];
+                    IntegrationResults(iFile).peakLocation(idx) = [];
+                    IntegrationResults(iFile).peakStartLocation(idx) = [];
+                    IntegrationResults(iFile).peakEndLocation(idx) = [];
+                    IntegrationResults(iFile).signal2Noise(idx) = [];
+                    IntegrationResults(iFile).entropy(idx) = [];
+                    IntegrationResults(iFile).spectrumMS2(idx) = [];
+
+
+                end
+                %store matching features
+                featureStruct(counter).mass_measured = currentFeature(1,1);
+                featureStruct(counter).retentionTime = currentFeature(1,2);
+                featureStruct(counter).peakHeights = heights;
+                featureStruct(counter).peakAreas = areas;
+                featureStruct(counter).peakLocations = peakLocation;
+                featureStruct(counter).peakBorders = peakBorders;
+                featureStruct(counter).retentionTimes = retentionTimes;
+                featureStruct(counter).signal2Noise = signal2Noise;
+                featureStruct(counter).entropy = entropy;
+                featureStruct(counter).spectrumMS2 = spectrum;
+                featureStruct(counter).XIC = xic;
+
+                %update remaining features
+                uniqueFeatures(1,:) = [];
+            end
+
+            if isISIntegration == false
+
+                %gather original scans
+                featureStruct = obj.findOriginalMassScans(featureStruct);
+            end
+
+            FeatureData = featureStruct;
+        end
+        %% Furter Processing
+        function outputStruct = gatherMS2Spectra(obj,FeatureStruct)
+            %check if MSn data exists, skip if not
+            if isscalar(obj.RawDataFileObj.centroidDataMS2)
+                outputStruct = FeatureStruct;
+                return
+            end
+
+            %%%%%
+            % test tolerances
+            MASSTOLERANCE = 0.05;
+            MASSUNIT = "Da";
+            TIMETOLERANCE = 10;
+            %%%%%%
+
+            timeArray = obj.RawDataFileObj.timeDataMS2;
+            timeArray = vertcat(timeArray{:});
+            scanArray = obj.RawDataFileObj.centroidDataMS2;
+            scanArray = vertcat(scanArray{:});
+            precursor = obj.RawDataFileObj.molecularPrecursorMass;
+            precursor = vertcat(precursor{:});
+
+            parfor iFeature = 1:length(FeatureStruct)
+                idMass = [];
+                switch MASSUNIT
+                    case "Da"
+                        idMass = abs(precursor-FeatureStruct(iFeature).mass_measured) <= MASSTOLERANCE;
+                    case "ppm"
+                        idMass = abs(precursor-FeatureStruct(iFeature).mass_measured)./FeatureStruct(iFeature).mass_measured*10^6 <= MASSTOLERANCE;
+                end
+                idTime = abs(timeArray-FeatureStruct(iFeature).retentionTime) <= TIMETOLERANCE;
+                id = idTime & idMass;
+                foundScan = scanArray(id);
+                %remove possible empty scans
+                foundScan(cellfun(@isempty, foundScan)) = [];
+                if numel(foundScan) >= 1
+                    %remove masses > precursor mass
+                    for jScan = 1:height(foundScan)
+                        highMassId = foundScan{jScan,1}(:,1) > FeatureStruct(iFeature).mass_measured + 1;
+                        foundScan{jScan,1}(highMassId,:) = [];
+                    end
+                    foundScan = alignSpectra(foundScan,"average","low","true",0.05);
+                else % no found scan
+                    foundScan = [];
+                end
+                FeatureStruct(iFeature).spectrumMS2 = foundScan;
+            end
+            outputStruct = FeatureStruct;
+        end
+
+        function [IntResults,obj] = gatherEISpectra(obj,IntResults)
+            intensities = obj.TempDataFileObj.ROIMat;
+            masses =  obj.TempDataFileObj.ROImzVec;
+            foundSpectrumArray = cell(size(IntResults.peakLocation));
+            molecularMass = zeros(size(foundSpectrumArray));
+            peakWidths = [IntResults.peakStartLocation,IntResults.peakEndLocation];
+            EIlosses = load("MassListData.mat","EICommonLoss");
+            EIlosses = EIlosses.EICommonLoss;
+            parfor iMass = 1:height(molecularMass)
+                peakBorders = peakWidths(iMass,:);
+                spectrum = intensities(peakBorders(1):peakBorders(2),:);
+                %normalize Spectras
+                spectrum = spectrum./max(spectrum,[],"all");
+                %remove columns with more than 50% empty
+                id = (sum(spectrum~=0)/height(spectrum))<0.5
+                spectrum(:,id) = []
+                %mean spectra
+                spectrum = mean(spectrum);
+                spectrum = [masses(~id);full(spectrum)]';
+                %remove rows with intensity < 0.01
+                spectrum(spectrum(:,2)<0.01,:) = [];
+                foundSpectrumArray{iMass,1} = spectrum;
+
+                %identify molecular mass
+                spectrumMass = flip(spectrum(:,1));
+                hasMolecularMass = false;
+                counter = 0;
+                while hasMolecularMass == false & counter < numel(spectrumMass)
+                    counter = counter + 1;
+                    possibleFragment = spectrumMass(counter)-EIlosses;
+                    hasMolecularMass = any(min(abs(spectrumMass-possibleFragment'))<0.1);
+                end
+                if hasMolecularMass
+                    molecularMass(iMass,1) = spectrumMass(counter,1);
+                else
+                    molecularMass(iMass,1) = spectrum(end,1);
+                end
+            end
+            IntResults.spectrumMS2 = foundSpectrumArray;
+            IntResults.mass = round(molecularMass,1);
+        end
+
+        function OutArray = mergeDuplicatePeaksWithinFile(obj,InArray)
+
+            MASSTOLERANCE = obj.withinFileMassTolerance;
+            MASSUNIT = obj.withinFileMassUnit;
+            TIMETOLERANCE = obj.peakTimeTolerance;
+
+            nFeature = size(InArray.mass);
+
+            OutArray = struct( ...
+                "mass",cell(nFeature), ...
+                "peakLocation",cell(nFeature), ...
+                "peakRetentionTime",cell(nFeature), ...
+                "peakStartLocation",cell(nFeature), ...
+                "peakEndLocation",cell(nFeature), ...
+                "peakHeight",cell(nFeature), ...
+                "peakArea",cell(nFeature), ...
+                "entropy",cell(nFeature), ...
+                "signal2Noise",cell(nFeature), ...
+                "minWidthFiltered",InArray.minWidthFiltered, ...
+                "maxWidthFiltered",InArray.maxWidthFiltered, ...
+                "entropyFiltered",InArray.entropyFiltered, ...
+                "signal2NoiseFiltered",InArray.signal2NoiseFiltered, ...
+                "spectrumMS2",cell(nFeature), ...
+                "XIC",InArray.XIC, ...
+                "fileID",cell(nFeature));
+
+            fnames = fieldnames(OutArray);
+            fnames(any(fnames == ["XIC","minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"],2)) = []; %remove names from list to skip field in assignmelt loop
+
+            xic = full(InArray.XIC(:,1));
+
+            for iFeature = 1:numel(InArray.mass) %sample loop
+                featureID = [InArray.mass{1,iFeature},InArray.peakRetentionTime{1,iFeature}];
+                counter = 0;
+                while ~isempty(featureID)
+                    counter = counter + 1;
+                    % find all features that match the current signiture
+                    %mass tolerance
+                    switch MASSUNIT
+                        case "Da"
+                            idMass = abs(featureID(:,1)-featureID(1,1)) <= MASSTOLERANCE;
+                        case "ppm"
+                            idMass = abs(featureID(:,1)-featureID(1,1))./featureID(1,1)*10^6 <= MASSTOLERANCE;
+                    end
+                    %time tolerance
+                    idTime = abs(featureID(:,2)-featureID(1,2)) <= TIMETOLERANCE;
+                    id = idMass & idTime;
+
+                    %% multiple peaks found
+                    % remove peaks with peak height < 3x baseline
+                    if sum(id) > 1
+                        bordersStart = InArray.peakStartLocation{1,iFeature};
+                        bordersEnd = InArray.peakEndLocation{1,iFeature};
+                        %remove less prominent peak
+                        idx = zeros(size(id));
+                        for jPeak = 1:numel(id)
+                            if id(jPeak) == false
+                                continue
+                            else
+                                tempTIC = xic(bordersStart(jPeak):bordersEnd(jPeak),:);
+                                idx(jPeak) =  mean([tempTIC(1);tempTIC(end)]) / max(tempTIC);
+                            end
+                        end
+                        %remove feat and return while loop
+                        id = id & idx(idx==max(idx));
+                        for jFieldName = 1:numel(fnames) % loop over each field name
+                            InArray.(fnames{jFieldName}){1,iFeature}(id) =  [];
+                        end
+
+                        %% only one peak remaining
+                        % store in output and remove from input
+                    elseif sum(id) == 1
+                        for jFieldName = 1:numel(fnames) % loop over each field name
+                            OutArray(iFeature).(fnames{jFieldName})= vertcat(OutArray(iFeature).(fnames{jFieldName}),InArray.(fnames{jFieldName}){1,iFeature}(id));
+                            InArray.(fnames{jFieldName}){1,iFeature}(id) =  [];
+                        end
+                    else %no matching peak
+
+                    end
+                    % remove entries from current list
+                    featureID(id,:) = [];
+                end
+            end
+        end
+
+        function FeatureStruct = correctFeatureMass(FeatureStruct) %%%% WIP %%%%
+            %% WIP
+            parfor iFeature = 1:height(FeatureStruct)
+                FeatureStruct(iFeature).mass_corrected = FeatureStruct(iFeature).mass_measured * FeatureStruct(iFeature).chargeState;
+            end
+        end
+
+        function obj = averageBlankFiles(obj) %%%% WIP %%%%
             %% averageBlankFiles calculates an average file from all blank files
-            % Takes all blank files in the TempDataFile, calculates the
-            % average and replaces blank files with the average blank.
+            % Takes reapeating blank files in the TempDataFile, calculates the
+            % average and replaces each block with the average blank.
 
             %gather data
-            N_BLANK = numel(obj.blankFile);
+            list = numel(obj.fileType);
             roiCell = obj.TempDataFileObj.roiCells;
             timeCell = obj.TempDataFileObj.timeCells;
             MAX_SCAN = max(obj.nScan);
@@ -269,6 +1228,7 @@ classdef RawData
             blankFiles = reshape(blankFiles,MAX_SCAN,size(blankFiles,2),N_BLANK);
             blankFiles = mean(blankFiles,3);
             blankTimes = horzcat(timeCell{end-N_BLANK+1:end});
+
             %replace 0 with NaN then ignore NaN in median calculation
             blankTimes(blankTimes == 0) = NaN;
             blankTimes = median(blankTimes,2,"omitnan");
@@ -318,7 +1278,7 @@ classdef RawData
             obj.TempDataFileObj.ROICells = tempCell;
         end
 
-        function obj = internalStandardNormalization(obj)
+        function obj = internalStandardNormalization(obj) %%%% MUST BE UPDATED %%%%
             %% MUST BE UPDATED TO NEW PROCESSING
             %Gather relevant matrices
             if obj.applyISto == "S&B"
@@ -362,7 +1322,147 @@ classdef RawData
             obj.TempDataFileObj.ROIMat = vertcat(Data{:});
         end
 
-        function obj = massCorrectionByInternalStandard(obj)
+        function obj = identifyInternalStandard(obj) %%%% MUST BE UPDATED %%%%
+            % identify IS Vectors
+            obj.ISMass = obj.ISDat(:,1)';
+            mzVec = obj.TempDataFileObj.ROImzVec;
+            %check tolerance and store difference
+            switch obj.mzTolUnit
+                case "Da"
+                    ISid = abs(mzVec-obj.ISMass') <= obj.mzTol;
+                    obj.ISMassFound = sort(mzVec(any(ISid,1)),2,"ascend");
+                    foundMassID = any(ISid,2);
+                case "ppm"
+                    ISid = abs(mzVec-obj.ISMass')./mzVec*10^6 <= obj.mzTol;
+                    obj.ISMassFound = sort(mzVec(any(ISid,1)),2,"ascend");
+                    foundMassID = any(ISid,2);
+            end
+            %remove IS outside tolerance and throw warning
+            if all(~foundMassID)
+                % if no IS mass found, throw warning and exit
+                header="Skipping ISTD Normalization";
+                message = ["Reason: no Internal standard mass was found in this group","Check the specified m/z or increase the mass tolerance"];
+                fig = uifigure;
+                uialert(fig,message,header,'Icon','warning');
+                return
+            elseif any(~foundMassID)
+                % if some IS mass is not found, throw warning and continue
+                header="Skipping ISTD No. ";
+                for i=1:size(obj.ISMass,2)
+                    if foundMassID(i)==0
+                        header = header + i + " ";
+                    end
+                end
+                message = ["Reason: Internal standard mass was not found in this group","Check the specified m/z or increase the mass tolerance"];
+                fig = uifigure;
+                uialert(fig,message,header,'Icon','warning');
+            end
+            ISid=any(ISid);
+            obj.ISMass(~foundMassID)=[];
+            % extract relevant columns and perform Peak Picking and
+            % Integration
+            ISIntegrationData = obj.findPeaks(ISid);
+            % remove possible empty columns
+            id = cellfun(@isempty,ISIntegrationData(1,:));
+            ISIntegrationData(:,id) = [];
+            obj.ISMassFound(:,id) = [];
+            if isempty(ISIntegrationData{1,1})
+                header="Skipping ISTD Normalization";
+                message = ["Reason: no Internal standard was found in this group","Check the specified RT or increase the time tolerance"];
+                fig = uifigure;
+                uialert(fig,message,header,'Icon','warning');
+                return
+            end
+            % assign Peaks to Sample
+            ISIntegrationData = obj.AssignRT2SampleFile(ISIntegrationData);
+            ISIntegrationData(5:7,:) = [];
+            ISData = obj.buildFeatureArray_Soft(ISIntegrationData,obj.ISMassFound);
+
+            % check if RT Range is Correct and Remove Feature outside range
+            nIS = height(obj.ISDat);
+            counter = 1;
+            id = [];
+            while counter <= nIS
+                ISmz = obj.ISDat(counter,1);
+                IStime = obj.ISDat(counter,2);
+                timeTol = obj.ISDat(counter,3);
+                switch obj.mzTolUnit
+                    case "Da"
+                        idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz) >= obj.mzTol;
+                    case "ppm"
+                        idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz)./ISmz*10^6 >= obj.mzTol;
+                end
+                idrt = abs(ISData.FeatIdentifiers(:,2)-IStime)>=timeTol;
+                id = [id,any([idmz,idrt],2)];
+                counter = counter+1;
+            end
+            id = all(id,2);
+            ISData.FeatIdentifiers(id,:) = [];
+            ISData.IntensityStorage(id,:) = [];
+            ISData.RetentionTimeStorage(id,:) = [];
+            ma = [];
+            % filter possible multiple Features for one mass
+            if ~isempty(ISData.FeatIdentifiers)
+                meanInt = mean(ISData.IntensityStorage,2);
+                counter = 1;
+                while counter <= nIS
+                    ISmz = obj.ISDat(counter,1);
+                    switch obj.mzTolUnit
+                        case "Da"
+                            idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz) <= obj.mzTol;
+                        case "ppm"
+                            idmz = abs(ISData.FeatIdentifiers(:,1)-ISmz)./ISData.FeatIdentifiers(:,1)*10^6 <= obj.mzTol;
+                    end
+                    ma = [ma,max(meanInt(idmz))];
+                    counter = counter+1;
+                end
+                id = ismember(meanInt,ma);
+                ISData.FeatIdentifiers = ISData.FeatIdentifiers(id,:);
+                ISData.IntensityStorage = ISData.IntensityStorage(id,:);
+                ISData.RetentionTimeStorage = ISData.RetentionTimeStorage(id,:);
+            end
+
+            %store in obj
+            check = ismember(obj.ISMassFound,ISData.FeatIdentifiers(:,1));
+            obj.ISMassFound(~check) = [];
+            obj.ISRT = ISData.FeatIdentifiers(:,2)';
+            obj.ISValue = ISData.IntensityStorage';
+
+            %check wich IS remains
+            foundMassID = false(size(obj.ISMass));
+            for n = 1:width(obj.ISMass)
+                ISmz = obj.ISMass(1,n);
+                switch obj.mzTolUnit
+                    case "Da"
+                        foundMassID(n) = any(abs(obj.ISMassFound-ISmz) <= obj.mzTol);
+                    case "ppm"
+                        foundMassID(n) = any(abs(obj.ISMassFound-ISmz)./ISmz*10^6 <= obj.mzTol);
+                end
+            end
+            obj.ISMass = sort(obj.ISMass(foundMassID),2,'ascend');
+            obj.ISdelta = obj.ISMass-obj.ISMassFound;
+            if all(~foundMassID)
+                % if no IS mass found, throw warning and exit
+                header="Skipping ISTD Normalization";
+                message = ["Reason: Every internal standard is missing peaks in one or more samples.","Check the specified retention time or increase the time tolerance"];
+                fig = uifigure;
+                uialert(fig,message,header,'Icon','warning');
+                return
+            elseif any(~foundMassID)
+                % if some IS mass is not found, throw warning and continue
+                header="Skipping ISTD No. ";
+                for i=1:size(foundMassID,2)
+                    if foundMassID(i) == 0
+                        header = header + i + ", ";
+                    end
+                end
+                message = ["Reason: Internal standard is missing peaks in one or more samples","Check the specified retention time or increase the time tolerance"];
+                fig = uifigure;
+                uialert(fig,message,header,'Icon','warning');
+            end
+        end
+
+        function obj = massCorrectionByInternalStandard(obj) %%%% MUST BE UPDATED %%%%
             %% massCorrectionByInternalStandard corrects found ROI masses
             % Takes the difference in found Internal Standard mass and
             % specified mass and shifts ROI masses accordingly.
@@ -389,7 +1489,7 @@ classdef RawData
             end
         end
 
-        function [valuesFiltered,obj] = filterAdducts(obj,IntegrationResults)
+        function [valuesFiltered,obj] = filterAdducts(obj,IntegrationResults) %%%% MUST BE UPDATED %%%%
             %% MUST BE UPDATED TO NEW PROCESSING
             % AdductFilterAlgo Filters Adduct Peaks from Internal AriumMS integration results
             %   Calculates possible non Adduct (Base) m/z for each
@@ -1023,6 +2123,86 @@ classdef RawData
 
         end
 
+        function FeatureStruct = gatherIsotopeDistributions(obj,FeatureStruct)
+
+            TOLERANCE = obj.withinFileMassTolerance;
+            TOLERANCEUNIT = obj.withinFileMassUnit;
+
+            parfor iFeature = 1:height(FeatureStruct)
+                targetMass = FeatureStruct(iFeature).mass_measured;
+
+                if strcmp(TOLERANCEUNIT,"ppm")
+                    adjustedTolerance = TOLERANCE * targetMass * 10^-6;
+                else
+                    adjustedTolerance = TOLERANCE;
+                end
+
+                spectrum = FeatureStruct(iFeature).spectrumMS1;
+                isotopePattern = cell(1,numel(spectrum));
+                chargeState = zeros(1,numel(spectrum));
+                for jFile = 1:numel(spectrum)
+                    if ~isempty(spectrum{1,jFile})
+                        [isotopePattern{1,jFile},chargeState(1,jFile)] = extractIsotopicDistribution(targetMass,spectrum{1,jFile},"Window",6,"Tolerance",adjustedTolerance);
+                    end
+                end
+                FeatureStruct(iFeature).isotopePattern = isotopePattern;
+                FeatureStruct(iFeature).chargeState = chargeState;
+            end
+        end
+
+        function featureStruct = calculateFormulaFromMass(obj,featureStruct)
+            % finds chemical formula from monoisotopic mass
+            MINSCORE = 600;
+            tolerance = obj.betweenFileMassTolerance;
+            tolUnit = obj.betweenFileMassUnit;
+
+            parfor iFeature = 1:height(featureStruct)
+                currentMass = featureStruct(iFeature).mass_corrected;
+                % determine Cl,Br and S counts from isotope distribution
+                elementHits = detectIsotopicElements(featureStruct(iFeature).isotopePattern(:,1), featureStruct(iFeature).isotopePattern(:,2), featureStruct(iFeature).chargeState);
+                maxCounts = [ceil(currentMass/12),...
+                    floor(currentMass/1),...
+                    floor(currentMass/79),...
+                    floor(currentMass/35),...
+                    floor(currentMass/19),...
+                    floor(currentMass/127),...
+                    floor(currentMass/14),...
+                    floor(currentMass/16),...
+                    floor(currentMass/31),...
+                    floor(currentMass/32)];
+
+                maxCounts(3) = elementHits.Br.count;
+                maxCounts(4) = elementHits.Cl.count;
+                maxCounts(10) = elementHits.S.count;
+
+                % calculate formula
+                if strcmp(tolUnit,"ppm")
+                    toleranceAdjusted = tolerance * currentMass *10^-6;
+                else
+                    toleranceAdjusted = tolerance;
+                end
+
+                decomposition = fastMassDecomposition(currentMass,toleranceAdjusted,maxCounts);
+
+                %filter nonsensical decompositions
+                [evaluation,decomposition] = evaluateDecompositions(decomposition, currentMass);
+                if isempty(decomposition)
+                    continue
+                end
+                % compare feature isotope distribution to formula
+                % distribution
+                scores = findBestMatchingFormulaByIsotopeDistribution(decomposition,featureStruct(iFeature).isotopePattern,toleranceAdjusted);
+                evaluation(scores < MINSCORE,:) = [];
+                scores(scores < MINSCORE,:) = [];
+                if ~isempty(evaluation)
+                    [~,order] = sort(scores,"descend");
+                    evaluation = evaluation(order,:);
+                    featureStruct(iFeature).formulaEvaluation = evaluation;
+                    featureStruct(iFeature).formula = evaluation.Formula(1);
+                end
+            end
+        end
+
         %% Data handling
         function obj = initializeStorageFile(obj)
             %check if file already exists
@@ -1051,7 +2231,7 @@ classdef RawData
             obj.RawDataFileObj.fragmentationType = {[]};
         end
 
-        function obj = setOptimizationOptions(obj,optimizeMode,bayesOptions)
+        function obj = setOptimizationOptions(obj,optimizeMode,bayesOptions) %%%% WIP %%%%
 
             switch optimizeMode
 
@@ -1299,85 +2479,6 @@ classdef RawData
             end
         end
 
-        function FeatureStruct = gatherIsotopeDistributions(obj,FeatureStruct)
-            
-            TOLERANCE = obj.withinFileMassTolerance;
-            TOLERANCEUNIT = obj.withinFileMassUnit;
-
-            parfor iFeature = 1:height(FeatureStruct)
-                targetMass = FeatureStruct(iFeature).mass_measured;
-
-                if strcmp(TOLERANCEUNIT,"ppm")
-                    adjustedTolerance = TOLERANCE * targetMass * 10^-6;
-                else
-                    adjustedTolerance = TOLERANCE;
-                end
-
-                spectrum = FeatureStruct(iFeature).spectrumMS1;
-                isotopePattern = cell(1,numel(spectrum));
-                chargeState = zeros(1,numel(spectrum));
-                for jFile = 1:numel(spectrum)
-                    if ~isempty(spectrum{1,jFile})
-                        [isotopePattern{1,jFile},chargeState(1,jFile)] = extractIsotopicDistribution(targetMass,spectrum{1,jFile},"Window",6,"Tolerance",adjustedTolerance);
-                    end
-                end
-                FeatureStruct(iFeature).isotopePattern = isotopePattern;
-                FeatureStruct(iFeature).chargeState = chargeState;
-            end
-        end
-
-        function featureStruct = calculateFormulaFromMass(obj,featureStruct)
-            % finds chemical formula from monoisotopic mass
-            MINSCORE = 600;
-            tolerance = obj.betweenFileMassTolerance;
-            tolUnit = obj.betweenFileMassUnit;
-
-            parfor iFeature = 1:height(featureStruct)
-                currentMass = featureStruct(iFeature).mass_corrected;
-                % determine Cl,Br and S counts from isotope distribution
-                elementHits = detectIsotopicElements(featureStruct(iFeature).isotopePattern(:,1), featureStruct(iFeature).isotopePattern(:,2), featureStruct(iFeature).chargeState);
-                maxCounts = [ceil(currentMass/12),...
-                    floor(currentMass/1),...
-                    floor(currentMass/79),...
-                    floor(currentMass/35),...
-                    floor(currentMass/19),...
-                    floor(currentMass/127),...
-                    floor(currentMass/14),...
-                    floor(currentMass/16),...
-                    floor(currentMass/31),...
-                    floor(currentMass/32)];
-
-                maxCounts(3) = elementHits.Br.count;
-                maxCounts(4) = elementHits.Cl.count;
-                maxCounts(10) = elementHits.S.count;
-
-                % calculate formula
-                if strcmp(tolUnit,"ppm")
-                    toleranceAdjusted = tolerance * currentMass *10^-6;
-                else
-                    toleranceAdjusted = tolerance;
-                end
-
-                decomposition = fastMassDecomposition(currentMass,toleranceAdjusted,maxCounts);
-
-                %filter nonsensical decompositions
-                [evaluation,decomposition] = evaluateDecompositions(decomposition, currentMass);
-                if isempty(decomposition)
-                    continue
-                end
-                % compare feature isotope distribution to formula
-                % distribution
-                scores = findBestMatchingFormulaByIsotopeDistribution(decomposition,featureStruct(iFeature).isotopePattern,toleranceAdjusted);
-                evaluation(scores < MINSCORE,:) = [];
-                scores(scores < MINSCORE,:) = [];
-                if ~isempty(evaluation)
-                    [~,order] = sort(scores,"descend");
-                    evaluation = evaluation(order,:);
-                    featureStruct(iFeature).formulaEvaluation = evaluation;
-                    featureStruct(iFeature).formula = evaluation.Formula(1);
-                end
-            end
-        end
     end
 
     %% static methods block
@@ -1627,14 +2728,14 @@ classdef RawData
         end
 
         function FeatureStruct = averageIsotopePattern(FeatureStruct)
-        %%  builds the average Isotopic pattern of each feature by aligning all patterns from each file and averaging them
+            %%  builds the average Isotopic pattern of each feature by aligning all patterns from each file and averaging them
             parfor iFeature = 1:height(FeatureStruct)
                 isotopePattern = FeatureStruct(iFeature).isotopePattern;
                 chargeState = FeatureStruct(iFeature).chargeState;
                 %remove empty cells
                 chargeState(cellfun(@isempty,isotopePattern)) = [];
                 isotopePattern(cellfun(@isempty,isotopePattern)) = [];
-                if ~isempty(chargeState) %average pattern and 
+                if ~isempty(chargeState) %average pattern and
                     FeatureStruct(iFeature).isotopePattern = alignSpectra(isotopePattern,"average","high","true");
                     FeatureStruct(iFeature).chargeState = median(chargeState,"all"); % only pattern of the same charge state, confirmation in previous step (confirmSameFeatureByIsotopeDistribution)
                 else
@@ -1647,6 +2748,15 @@ classdef RawData
         end
 
         function FeatureStruct = correctMassByChargeState(FeatureStruct)
+
+            function outputStruct = finalizeEISpectra(inputStruct)
+                %% merges all found EI fragment spectra (all files) into an average spectrum
+                outputStruct = inputStruct;
+                for n = 1:length(inputStruct)
+                    outputStruct(n).spectrumMS2 = alignSpectra(inputStruct(n).spectrumMS2,"average","low","true");
+                end
+            end
+
             %% uses charge state information to adjust the mass of each feature
             parfor iFeature = 1:height(FeatureStruct)
                 if FeatureStruct(iFeature).chargeState > 0
