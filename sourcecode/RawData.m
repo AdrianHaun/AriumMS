@@ -144,10 +144,12 @@ classdef RawData
             TIC = cell(length(FileLoc),1);
             BPC = cell(length(FileLoc),1);
             polarityCells = cell(length(FileLoc),1);
-            FileInfo =  struct('NumberOfScansMS1',[],...
-                'NumberOfScansMSn',[],...
-                'StartTime',[],...
-                'EndTime',[]);
+            FileInfo =  struct('numberOfScansMS1',[],...
+                'numberOfScansMSn',[],...
+                'startTime',[],...
+                'endTime',[],...
+                'scanFrequenceMS1',[],...
+                'scanFrequenceMS2',[]);
             parfor n=1:length(FileLoc)
                 %check filetype
                 test = strsplit(FileLoc(n),'.');
@@ -166,16 +168,16 @@ classdef RawData
             obj.RawDataFileObj.PeakDataMS1 ={[]};
 
             % calculate Scan Frequency [Hz]
-            scanFrq = [FileInfo.NumberOfScansMS1]./([FileInfo.EndTime]-[FileInfo.StartTime]);
+            scanFrq = [FileInfo.numberOfScansMS1]./([FileInfo.endTime]-[FileInfo.startTime]);
             scanFrq = num2cell(scanFrq);
-            [FileInfo.ScanFrequenceMS1] = scanFrq{:};
-            scanFrq = [FileInfo.NumberOfScansMSn]./([FileInfo.EndTime]-[FileInfo.StartTime]);
+            [FileInfo.scanFrequenceMS1] = scanFrq{:};
+            scanFrq = [FileInfo.numberOfScansMSn]./([FileInfo.endTime]-[FileInfo.startTime]);
             scanFrq = num2cell(scanFrq);
-            [FileInfo.ScanFrequenceMSn] = scanFrq{:};
+            [FileInfo.scanFrequenceMSn] = scanFrq{:};
             %store data
             obj.DataInfo = FileInfo;
-            obj.Start=round(min([FileInfo.StartTime]),1);
-            obj.End=round(max([FileInfo.EndTime]),1);
+            obj.Start=round(min([FileInfo.startTime]),1);
+            obj.End=round(max([FileInfo.endTime]),1);
         end
 
         function obj = ReadData(obj,DataLoc,Level)
@@ -201,9 +203,15 @@ classdef RawData
                 FileType = FileType(end);
                 switch FileType
                     case "mzML"
+<<<<<<< HEAD
+                        [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc(n),MSLevel=Level);
+                    case "mzXML"
+                        [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc(n),MSLevel=Level);
+=======
                         [peakTemp,timeTemp,polarities{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc{n},MSLevel=Level);
                     case "mzXML"
                         [peakTemp,timeTemp,polarities{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
+>>>>>>> stable
                 end
                 
                 % when profile data then centroid scans
