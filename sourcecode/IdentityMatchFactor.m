@@ -1,25 +1,53 @@
-function Score = IdentityMatchFactor(s1,s2)
-C=999;
-
-m2 = sum(s1~=0 & s2~=0); %number of non zero elements in s1 and s2
-
-matchFactor = C*dot(s1,s2)/(sqrt(sum(s1.^2,"all"))*sqrt(sum(s2.^2,"all")));
-%calculate composite score
-ds1=[0,s1(1:end-1)];
-ds2=[0,s2(1:end-1)];
-R = (s1.*ds1).*(s2.*ds2);
-gamma1=s1./ds1.*ds2./s2;
-gamma1(~isfinite(gamma1))=0; %remove NaN and Inf values
-R(gamma1==0)=0;
-R(R>0) = gamma1(R>0);
-alpha = R~=0;
-m1 = sum(alpha); %number of nonzero elements in R
-R = R(alpha);
-if isempty(R)
-    F = 0;
-else
-    F = (sum(R*min([R,1./R],[],"all"),'all'))/sum(R,"all");
+function compositScore = IdentityMatchFactor(spectrumA,spectrumB)
+%% calculateCompositScore calculates the composite score between two spectra
+%
+% inputs: spectrumA, spectrumB: spectra to compare. Specified as
+%                               double column vector of intensity values
+%                               with the same mass axis
+% output: composit score similarity measure. (1,1) double, between 0 and
+% 999
+%
+arguments
+    spectrumA (:,1) {mustBeNumeric,mustBeReal}
+    spectrumB (:,1) {mustBeNumeric,mustBeReal,mustBeEqualSize(spectrumA,spectrumB)}
 end
-Score = C*(m1*F+m2*matchFactor/C)/(m1+m2);
-Score = round(Score);
+
+SCORE_MAXIMUM = 999;
+
+nZeroSpectrumA = sum(spectrumA ~= 0); %number of non zero elements in spectrumA
+nZeroBothSpectra = sum(spectrumA ~= 0 & spectrumB ~= 0); %number of non zero elements in both vectors
+
+% calculate cosine similarity
+cosineSimilarity = dot(spectrumA,spectrumB)^2/(sum(spectrumA.^2)*sum(spectrumB.^2));
+
+%remove zero elements
+indexToRemove = spectrumA == 0 | spectrumB == 0;
+
+spectrumA(indexToRemove) = [];
+spectrumB(indexToRemove) = [];
+
+% shift vectors by 1
+downShiftedA = [0;spectrumA];
+downShiftedB = [0;spectrumB];
+spectrumA = [spectrumA;0];
+spectrumB = [spectrumB;0];
+
+% calculate correction factor
+composit = (spectrumA./downShiftedA.*downShiftedB./spectrumB);
+composit(~isfinite(composit)) = [];
+composit(composit>1) = composit(composit>1).^-1;
+
+correctionFactor = 1/nZeroBothSpectra * sum(composit);
+
+%% calculate composite score
+compositScore = SCORE_MAXIMUM*(nZeroSpectrumA*cosineSimilarity + nZeroBothSpectra*correctionFactor)/(nZeroSpectrumA + nZeroBothSpectra);
+compositScore = round(compositScore);
+
+% Custom validation function
+function mustBeEqualSize(a,b)
+% Test for equal size
+if ~isequal(size(a),size(b))
+    eid = 'Size:notEqual';
+    msg = 'Size of first input must equal size of second input.';
+    error(eid,msg)
 end

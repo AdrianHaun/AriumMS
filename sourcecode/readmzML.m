@@ -133,6 +133,7 @@ intBinaryStrings = strtrim(intBinaryStrings);
 mzBinaryStrings = strtrim(mzBinaryStrings);
 %remove MSn data if not relevant
 idx = msLevels ~= options.MSLevel;
+<<<<<<< HEAD
 retentionTime(idx) = [];
 polarity(idx) = [];
 collisionEnergy(idx) = [];
@@ -140,6 +141,17 @@ fragMethod(idx) = [];
 precursorMass(idx) = [];
 mzBinaryStrings(idx) = [];
 intBinaryStrings(idx) = [];
+=======
+retentionTime(idx)=[];
+CollisionEnergy(idx)=[];
+FragMethod(idx)=[];
+PrecursorMass(idx)=[];
+mzBinaryStrings(idx)=[];
+IntBinaryStrings(idx)=[];
+polarity=repmat(polarity,height(retentionTime),1);
+polarity(polarity == "positive scan") = "+";
+polarity(polarity == "negative scan") = "-";
+>>>>>>> stable
 % convert retentionTimes to seconds
 switch retentionTimeUnit
     case "minute"
@@ -162,6 +174,7 @@ for iScan=1:size(mzBinaryStrings,1) %decode binary strings
     scanData{iScan} = [mzbinary' Intbinary'];
 end
 
+<<<<<<< HEAD
 % convert polarity
 polarity(polarity == "positive scan") = "+";
 polarity(polarity == "negative scan") = "-";
@@ -186,6 +199,17 @@ else
     varargout{2} = [];
     varargout{3} = [];
     varargout{4} = [];
+=======
+varargout{1} = polarity;
+if options.MSLevel > 1
+    varargout{2} = str2double(PrecursorMass);
+    varargout{3} = CollisionEnergy;
+    varargout{4} = FragMethod;
+else
+    varargout{2} = 0;
+    varargout{3} = 0;
+    varargout{4} = "empty";
+>>>>>>> stable
 end
 
 

@@ -152,8 +152,8 @@ classdef RawData
                 'scanFrequenceMS2',[]);
             parfor n=1:length(FileLoc)
                 %check filetype
-                test=strsplit(FileLoc(n),'.');
-                test=test(end);
+                test = strsplit(FileLoc(n),'.');
+                test = test(end);
                 switch test
                     case "mzML"
                         [FileInfo(n),RetentionTimes{n},TIC{n},BPC{n},polarityCells{n}] = mzMLinfo(FileLoc{n});
@@ -164,7 +164,7 @@ classdef RawData
             obj.RawDataFileObj.PreviewTICs = TIC;
             obj.RawDataFileObj.PreviewBPCs = BPC;
             obj.RawDataFileObj.PreviewTimes = RetentionTimes;
-            obj.RawDataFileObj.polarity = polarityCells;
+            obj.RawDataFileObj.polarityMS1 = polarityCells;
             obj.RawDataFileObj.PeakDataMS1 ={[]};
 
             % calculate Scan Frequency [Hz]
@@ -188,24 +188,30 @@ classdef RawData
             PrecursorMass=cell(nFiles,1);
             CollisionForce=cell(nFiles,1);
             FragMethod=cell(nFiles,1);
+            polarities=cell(nFiles,1);
             fileType = obj.MSFileType;
             %check if DataCheck was performed
-            if ~isfield(obj.RawDataFileObj,"polarity")
+            if ~isfield(obj.RawDataFileObj,"polarityMS1")
                 obj = obj.DataCheck;
             end
             
-            polarities = obj.RawDataFileObj.polarity;
-            parfor n=1:nFiles
+            for n=1:nFiles
                 peakTemp = [];
                 timeTemp = [];
                 %filetype check
-                FileType=strsplit(DataLoc(n),'.');
-                FileType=FileType(end);
+                FileType = strsplit(DataLoc(n),'.');
+                FileType = FileType(end);
                 switch FileType
                     case "mzML"
+<<<<<<< HEAD
                         [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc(n),MSLevel=Level);
                     case "mzXML"
                         [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc(n),MSLevel=Level);
+=======
+                        [peakTemp,timeTemp,polarities{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc{n},MSLevel=Level);
+                    case "mzXML"
+                        [peakTemp,timeTemp,polarities{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
+>>>>>>> stable
                 end
                 
                 % when profile data then centroid scans
@@ -215,13 +221,14 @@ classdef RawData
                     [peakTemp,timeTemp] = DataCleanUp(peakTemp,timeTemp);
                 end
                 %convert from pseudo molecular mass to molecular mass
-                peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n});
+                peakTemp = ConvertScans2MolecularMass(peakTemp,polarities{n,1});
                 Peaks{n,1} = peakTemp;
                 times{n,1} = timeTemp;
             end
             if Level == 1
                 obj.RawDataFileObj.TimeDataMS1 = times;
                 obj.RawDataFileObj.PeakDataMS1 = Peaks;
+                obj.RawDataFileObj.polarityMS1 = polarities;
             else
                 %remove cells with no MSn data
                 idx = cellfun(@isempty,Peaks);
@@ -230,7 +237,8 @@ classdef RawData
                 PrecursorMass(idx,:) = [];
                 CollisionForce(idx,:) = [];
                 FragMethod(idx,:) = [];
-                [obj.RawDataFileObj.PeakDataMSn,obj.RawDataFileObj.TimeDataMSn,obj.RawDataFileObj.Precursor,obj.RawDataFileObj.CollisionEnergy,obj.RawDataFileObj.CollisionType] = obj.MS2CleanUp(Peaks,times,PrecursorMass,CollisionForce,FragMethod);
+                polarities(idx,:) = [];
+                [obj.RawDataFileObj.PeakDataMSn,obj.RawDataFileObj.TimeDataMSn,obj.RawDataFileObj.Precursor,obj.RawDataFileObj.CollisionEnergy,obj.RawDataFileObj.CollisionType,obj.RawDataFileObj.polaritiesMS2] = obj.MS2CleanUp(Peaks,times,PrecursorMass,CollisionForce,FragMethod,polarities);
             end
         end
 
@@ -699,7 +707,7 @@ classdef RawData
 
         function obj = removeContaminants(obj)
             % Remove Contaminant Masses load correct Contaminant Masslist
-            polarity = obj.RawDataFileObj.polarity;
+            polarity = obj.RawDataFileObj.polarityMS1;
             polarity = vertcat(polarity{:});
             
             test = strcmp(polarity,"+");
@@ -993,7 +1001,7 @@ classdef RawData
 
             mzTolVal = obj.mzTol;
 
-            polarity = app.Data(CurrentTab).RawDataFileObj.polarity;
+            polarity = app.Data(CurrentTab).RawDataFileObj.polarityMS1;
             polarity = vertcat(polarity{:});
             test = strcmp(polarity,"+");
             if all(test)
@@ -1470,7 +1478,7 @@ classdef RawData
             obj.TempDataFileObj.timeVec = round(vertcat(time{:}),1);
         end
 
-        function [PeakData,TimeData,PrecursorData,ColType,ColEnergy]= MS2CleanUp(obj,PeakData,TimeData,PrecursorData,ColType,ColEnergy)
+        function [PeakData,TimeData,PrecursorData,ColType,ColEnergy,polarities]= MS2CleanUp(obj,PeakData,TimeData,PrecursorData,ColType,ColEnergy,polarities)
             %remove empty scans and rescale intensities
             %% Clean Data
             for k = 1 : size(PeakData,1)
@@ -1481,6 +1489,7 @@ classdef RawData
                 PrecursorData{k,1}(idx,:) = [];
                 ColType{k,1}(idx,:) = [];
                 ColEnergy{k,1}(idx,:) = [];
+                polarities{k,1}(idx,:) = [];
                 parfor n = 1:numel(Peak)
                     Peak{n,1}(:,2) = Peak{n,1}(:,2)/max(Peak{n,1}(:,2));
                 end
