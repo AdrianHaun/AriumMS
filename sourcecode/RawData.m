@@ -203,15 +203,9 @@ classdef RawData
                 FileType = FileType(end);
                 switch FileType
                     case "mzML"
-<<<<<<< HEAD
                         [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc(n),MSLevel=Level);
                     case "mzXML"
-                        [peakTemp,timeTemp,PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc(n),MSLevel=Level);
-=======
                         [peakTemp,timeTemp,polarities{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzML(DataLoc{n},MSLevel=Level);
-                    case "mzXML"
-                        [peakTemp,timeTemp,polarities{n,1},PrecursorMass{n,1},CollisionForce{n,1},FragMethod{n,1}] = readmzXML(DataLoc{n},MSLevel=Level);
->>>>>>> stable
                 end
                 
                 % when profile data then centroid scans
