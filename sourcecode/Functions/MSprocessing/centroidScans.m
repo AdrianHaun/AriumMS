@@ -1,4 +1,4 @@
-function centroidedScans = centroidScans(profileScans)
+function msDataStruct = centroidScans(msDataStruct)
 %% centroidScans takes profile MS scans and centroides them
 %
 %   Searches in each mass scan for mz peaks, takes all mz values within
@@ -6,34 +6,27 @@ function centroidedScans = centroidScans(profileScans)
 %   intensity. Then sums all intensities used for mz calculation as
 %   centroided intensity.
 %
-% inputs: profileScans: cell array containing two column matrices, 
-%                    column1: mass; column 2: intensity 
+% inputs: profileScans: cell array containing two column matrices,
+%                    column1: mass; column 2: intensity
 %
 % output: centroidedScans: centroided scans in the same format as the input
 
 arguments
-    profileScans (:,1) cell
+    msDataStruct (1,1) struct
 end
 
-if isempty(profileScans)
-    centroidedScans = cell(0,1);
+if isempty(msDataStruct)
     return
 end
 
-% check for already centroided data
-check = cellfun(@(x) min(diff(x(:,1))),profileScans,UniformOutput=false);
-check = median(vertcat(check{:}));
-if check > 0.2
-    centroidedScans = profileScans;
-    return
-end
+spectras = msDataStruct.spectra;
 
-%preallocate output
-centroidedScans = cell(size(profileScans));
+parfor iScan = 1:msDataStruct.nSpectra
 
-parfor iScan = 1:height(centroidedScans)
-    currentScan = profileScans{iScan,1};
-    if ~isempty(currentScan)
+    %check if already centroid
+    if spectras(iScan).dataType == "profile"
+        currentScan = spectras(iScan).processedScan;
+
         %find mass peaks and width
         [maxIntensity,maxMZ,width] = findpeaks(currentScan(:,2),currentScan(:,1),'WidthReference','halfheight','SortStr','none');
         %preallocate centroided scan
@@ -46,9 +39,12 @@ parfor iScan = 1:height(centroidedScans)
             maxIntensity(jPeak,1) = mass;
             maxIntensity(jPeak,2) = max(vec(:,2));
         end
-        centroidedScans{iScan,1} = maxIntensity;
-    else
-        continue
-    end
+        spectras(iScan).centroidedScan = maxIntensity;
 
+    else
+        spectras(iScan).centroidedScan = spectras(iScan).processedScan;
+    end
 end
+
+%store
+msDataStruct.spectra = spectras;

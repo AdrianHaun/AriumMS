@@ -115,6 +115,8 @@ classdef RawData
             % permanant storage files
             if isgraphics(appWindow)
                 obj.mainWindow = appWindow;
+            else
+                obj.mainWindow = uifigure;
             end
             obj.groupName = groupName;
             obj.RawDataFile = tempname +".mat";
@@ -122,53 +124,45 @@ classdef RawData
             obj = obj.initializeStorageFile;
         end
         %% Handling MS files
-        function obj = dataFileCheck(obj)
-            % Check Data, number of Scans, Start/End Times
-            %Check minimum number of scans
-            fileArray = obj.dataFile;
-            %remove empty
-            idx = cellfun(@isempty,fileArray);
-            fileArray(idx) = [];
+
+        function obj = readData(obj,dllPath)
+            files = obj.dataFile;
+            nFile = size(files,1);
             %preallocation
-            retentionTimes = cell(length(fileArray),1);
-            totalIonChromatogram = cell(length(fileArray),1);
-            basePeakChromatogram = cell(length(fileArray),1);
-            polarityCells = cell(length(fileArray),1);
-            FileInfo =  struct('numberOfScansMS1',[],...
+            MSData = struct('file',[],...
+                'startTimeStamp',[],...
+                'nSpectra',[],...
+                'spectra',[]);
+            
+             FileInfo =  struct('numberOfScansMS1',[],...
                 'numberOfScansMSn',[],...
                 'startTime',[],...
                 'endTime',[],...
-                'scanFrequenceMS1',[],...
-                'scanFrequenceMS2',[]);
+                'scanFrequencyMS1',[],...
+                'scanFrequencyMSn',[]);
 
-            parfor iFile = 1:numel(fileArray)
-                %check file-type
-                test = strsplit(fileArray(iFile),'.');
-                test = test(end);
-                switch test
-                    case "mzML"
-                        [FileInfo(iFile),retentionTimes{iFile},totalIonChromatogram{iFile},basePeakChromatogram{iFile},polarityCells{iFile}] = mzMLinfo(fileArray{iFile});
-                    case "mzXML"
-                        [FileInfo(iFile),retentionTimes{iFile},totalIonChromatogram{iFile},basePeakChromatogram{iFile},polarityCells{iFile}] = mzXMLinfo(fileArray{iFile});
-                    case "CDF"
-                        [FileInfo(iFile),retentionTimes{iFile},totalIonChromatogram{iFile},basePeakChromatogram{iFile},polarityCells{iFile}] = mzCDFinfo(fileArray{iFile});
-                end
+            parfor iFile = 1:nFile
+                % read file into struct
+                currentFile = readMSfile_pwiz(files{iFile},dllPath);
+
+                % pre-process raw data
+                % denoise
+                currentFile = denoiseScans(currentFile,"variable");
+                % centroid All Scans
+                currentFile = centroidScans(currentFile);
+                % Normalize MS2
+                currentFile = normalizeMS2Scans(currentFile);
+                % compress
+                currentFile = compressScans(currentFile);
+
+                % gather scan infos
+                FileInfo(iFile).numberOfScansMS1 = sum([currentFile.spectra.msLevel]==1);
+                FileInfo(iFile).numberOfScansMSn = sum([currentFile.spectra.msLevel] > 1);
+                FileInfo(iFile).startTime = currentFile.spectra(1).rt;
+                FileInfo(iFile).endTime = currentFile.spectra(end).rt;
+
+                MSData(iFile) = currentFile;
             end
-            obj.RawDataFileObj.previewTICs = totalIonChromatogram;
-            obj.RawDataFileObj.previewBPCs = basePeakChromatogram;
-            obj.RawDataFileObj.previewTimes = retentionTimes;
-
-            polarity = vertcat(polarityCells{:});
-
-            test = strcmp(polarity,"+");
-            if all(test)
-                polarity = "positive";
-            elseif all(~test)
-                polarity = "negative";
-            else
-                polarity = "both";
-            end
-            obj.scanPolarity = polarity;
 
             % calculate Scan Frequency [Hz]
             scanFrequencyHertz = [FileInfo.numberOfScansMS1]./([FileInfo.endTime]-[FileInfo.startTime]);
@@ -177,71 +171,12 @@ classdef RawData
             scanFrequencyHertz = [FileInfo.numberOfScansMSn]./([FileInfo.endTime]-[FileInfo.startTime]);
             scanFrequencyHertz = num2cell(scanFrequencyHertz);
             [FileInfo.scanFrequencyMSn] = scanFrequencyHertz{:};
-            %store data
             obj.DataInfo = FileInfo;
             obj.measurementStartTime = round(min([FileInfo.startTime]),1);
             obj.measurementEndTime = round(max([FileInfo.endTime]),1);
-        end
 
-        function obj = readData(obj,dataFile,ionisationType)
-            nFile = size(dataFile,1);
-            %preallocation
-            DataMS1 = cell(nFile,1);
-            DataMS2 = cell(nFile,1);
-            parfor iFile = 1:nFile
-                %filetype check
-                fileType = strsplit(dataFile(iFile),'.');
-                fileType = fileType(end);
-                switch fileType
-                    case "mzML"
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzML_MSandMS2(dataFile{iFile});
-                    case "mzXML"
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzXML_MSandMS2(dataFile{iFile});
-                    case "CDF"
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] = readmzCDF(dataFile{iFile});
-                end
-
-                % pre-process raw data
-                switch ionisationType
-                    case "Hard"
-                        %centroid profile data
-                        DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
-                        DataMS1{iFile,1} = removeEmptyScans(DataMS1{iFile,1});
-                    otherwise
-                        %denoise profile data
-                        DataMS1{iFile,1}.profileDataMS1 = denoiseScans(DataMS1{iFile,1}.profileDataMS1,"variable");
-                        %centroid MS1
-                        DataMS1{iFile,1}.centroidDataMS1 = centroidScans(DataMS1{iFile,1}.profileDataMS1);
-
-                        %compress MS2 data and store
-                        DataMS2{iFile,1}.profileDataMS2 = denoiseScans(DataMS2{iFile,1}.profileDataMS2,"variable");
-                        DataMS2{iFile,1}.centroidDataMS2 = centroidScans(DataMS2{iFile,1}.profileDataMS2);
-                        DataMS2{iFile,1}.centroidDataMS2 = normalizeScans(DataMS2{iFile,1}.centroidDataMS2);
-                        [DataMS1{iFile,1},DataMS2{iFile,1}] = removeEmptyScans(DataMS1{iFile,1},DataMS2{iFile,1});
-                end
-
-            end
-
-            %store data
-            %MS1 data
-            DataMS1 = vertcat(DataMS1{:});
-            obj.RawDataFileObj.profileDataMS1 = {DataMS1.profileDataMS1}';
-            obj.RawDataFileObj.centroidDataMS1 = {DataMS1.centroidDataMS1}';
-            obj.RawDataFileObj.timeDataMS1 = {DataMS1.timeDataMS1}';
-            obj.RawDataFileObj.polarityMS1 = {DataMS1.polarityMS1}';
-
-            %check for empty MS2 data
-            DataMS2 = vertcat(DataMS2{:});
-            if ~isempty(vertcat(DataMS2(:).profileDataMS2))
-                obj.RawDataFileObj.profileDataMS2 = {DataMS2.profileDataMS2}';
-                obj.RawDataFileObj.centroidDataMS2 = {DataMS2.centroidDataMS2}';
-                obj.RawDataFileObj.timeDataMS2 = {DataMS2.timeDataMS2}';
-                obj.RawDataFileObj.polarityMS2 = {DataMS2.polarityMS2}';
-                obj.RawDataFileObj.precursorMass = {DataMS2.precursorMass}';
-                obj.RawDataFileObj.molecularPrecursorMass = {DataMS2.precursorMassCorrected}';
-                obj.RawDataFileObj.fragmentationEnergy = {DataMS2.fragmentationEnergy}';
-                obj.RawDataFileObj.fragmentationType = {DataMS2.fragmentationType}';
-            end
+            %store data on disk
+            obj.RawDataFileObj.Data = MSData;
         end
 
         %% Data Processing
@@ -261,23 +196,6 @@ classdef RawData
                 title = "Processing " + obj.groupName;
                 progressBar = uiprogressdlg(obj.mainWindow,"Title",title,"Message","Preparation",Value=0);
             end
-
-            fileArray = obj.dataFile;
-            %remove possible empty
-            iFile = cellfun(@isempty,fileArray);
-            fileArray(iFile) = [];
-
-            % gather measurement type from file name
-            obj.fileType = obj.identifyMeasurementType(fileArray);
-
-            progressBar.Message = "Loading files";
-            %check if files already loaded then skip loading stage
-            test = obj.RawDataFileObj.centroidDataMS1;
-            if isempty(test{1,1}) || size(obj.fileName,1) ~= height(test)
-                obj = obj.readData(fileArray,obj.ionisationType);
-            end
-
-            clearvars test fileArray id
 
             %build TempDataFile
             obj.TempDataFile = tempname +".mat";
@@ -2212,23 +2130,7 @@ classdef RawData
             obj.RawDataFileObj = matfile(obj.RawDataFile,Writable=true);
 
             %predefine Variables in .mat file
-            obj.RawDataFileObj.previewTICs = {[]};
-            obj.RawDataFileObj.previewBPCs = {[]};
-            obj.RawDataFileObj.previewTimes = {[]};
-
-            obj.RawDataFileObj.profileDataMS1 = {[]};
-            obj.RawDataFileObj.centroidDataMS1 = {[]};
-            obj.RawDataFileObj.timeDataMS1 = {[]};
-            obj.RawDataFileObj.polarityMS1 = {[]};
-
-            obj.RawDataFileObj.profileDataMS2 = {[]};
-            obj.RawDataFileObj.centroidDataMS2 = {[]};
-            obj.RawDataFileObj.timeDataMS2 = {[]};
-            obj.RawDataFileObj.polarityMS2 = {[]};
-            obj.RawDataFileObj.precursorMass = {[]};
-            obj.RawDataFileObj.molecularPrecursorMass = {[]};
-            obj.RawDataFileObj.fragmentationEnergy = {[]};
-            obj.RawDataFileObj.fragmentationType = {[]};
+            obj.RawDataFileObj.previewTICs = struct();
         end
 
         function obj = setOptimizationOptions(obj,optimizeMode,bayesOptions) %%%% WIP %%%%

@@ -1,4 +1,4 @@
-function cleanedScans = denoiseScans(rawScans,mode,cutOffValue)
+function msDataStruct = denoiseScans(msDataStruct,mode,cutOffValue)
 %% cleanScans takes MS scans determines the lowest intensities and removes them
 %
 % Removes each intensity below the cutoff value. The cutoff value is
@@ -13,34 +13,29 @@ function cleanedScans = denoiseScans(rawScans,mode,cutOffValue)
 % output: cleanedScans: cleaned scans in the same format as the input
 
 arguments
-    rawScans    (:,1) cell
+    msDataStruct (1,1) struct
     mode        (1,1) string {mustBeMember(mode,["variable","threshold"])} = "variable";
-    cutOffValue (1,1) double {mustBeFinite,mustBePositive} = 0.01
+    cutOffValue (1,1) double {mustBeFinite,mustBePositive} = 10
 end
 
-if isempty(rawScans)
-    cleanedScans = cell(0,1);
-    return
-end
-
-cleanedScans = cell(size(rawScans));
+spectra = msDataStruct.spectra;
 
 switch mode
     case "threshold"
         cutoff = cutOffValue;
     otherwise
         %% determine over all intensity bins
-        ints = vertcat(rawScans{:});
+        ints = vertcat(spectra.rawScan);
         [~,edges] = histcounts(ints(:,2));
         cutoff = edges(2);
 end
 
 %% Clean Data
-parfor j = 1:height(cleanedScans)
-    data = rawScans{j,1};
-    if ~isempty(data)
-        idx = data(:,2) <= cutoff;
-        data(idx,2) = 0;
-        cleanedScans{j,1} = data;
-    end
+for j = 1:numel(spectra)
+    data = spectra(j).rawScan;
+    idx = data(:,2) <= cutoff;
+    data(idx,2) = 0;
+    spectra(j).processedScan = data;
 end
+
+msDataStruct.spectra = spectra;

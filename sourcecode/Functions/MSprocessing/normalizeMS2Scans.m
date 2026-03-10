@@ -1,4 +1,4 @@
-function normalizedScans = normalizeScans(originalScans)
+function msDataStruct = normalizeMS2Scans(msDataStruct)
 %% normalizeScans takes MS scans and normalizes each scan 
 %
 % The intensities within each scan are normalized to to maximum intensity
@@ -10,21 +10,19 @@ function normalizedScans = normalizeScans(originalScans)
 % output: normalizedScans: normalized scans in the same format as the input
 
 arguments
-    originalScans (:,1) cell
+    msDataStruct (1,1) struct
 end
 
-if isempty(originalScans)
-    normalizedScans = cell(0,1);
-    return
-end
+spectras = msDataStruct.spectra;
 
-%preallocate output
-normalizedScans = cell(size(originalScans));
-
-parfor nScan = 1:height(normalizedScans)
-    currentScan = originalScans{nScan,1};
-    if ~isempty(currentScan)
+for nScan = 1:numel(spectras)
+    currentScan = spectras(nScan).centroidedScan;
+    if spectras(nScan).msLevel == 2
         currentScan(:,2) = currentScan(:,2)./max(currentScan(:,2));
-        normalizedScans{nScan,1} = currentScan;
+        spectras(nScan).centroidedScan = currentScan;
+    else
+        continue
     end
 end
+
+msDataStruct.spectra = spectras;
