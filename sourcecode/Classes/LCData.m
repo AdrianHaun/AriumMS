@@ -16,7 +16,11 @@ classdef LCData < RawData
         end
 
         function [Output,obj] = processGroup(obj,varargin)
-            [Output,obj] = obj.extractFeaturesFromMassData(varargin);
+            if isempty(varargin)
+                [Output,obj] = obj.extractFeaturesFromMassData;
+            else
+                [Output,obj] = obj.extractFeaturesFromMassData(varargin);
+            end
         end
         
     end

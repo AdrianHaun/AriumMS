@@ -5,8 +5,7 @@ classdef RawData
     % - Pre processing
     % - ROI search
     % - Post processing
-    % - Feature generation
-
+    % - Feature extraction
     properties
         %% Processing Parameters
         fileName    (:,1) string
@@ -36,7 +35,6 @@ classdef RawData
         baselineStepSize            (1,1) double {mustBeFinite,mustBePositive} = 20
         baselineRegressionMethod    (1,1) string {mustBeMember(baselineRegressionMethod,["pchip","linear","spline"])} = "pchip"
         baselineEstimationMethod    (1,1) string {mustBeMember(baselineEstimationMethod,["quantile","em"])} = "em"
-        baselineSmoothMethod        (1,1) string {mustBeMember(baselineSmoothMethod,["none","lowess","loess"])} = "none"
         baselineQuantil             (1,1) double {mustBeInRange(baselineQuantil,0,1)} = 0.1
         %Golay Parameters
         smoothingFrameSize  (1,1) double {mustBeInteger,mustBePositive} = 20
@@ -81,8 +79,7 @@ classdef RawData
         useEntropyFilter            (1,1) logical = false
         entropyFilterStrength       (1,1) string {mustBeMember(entropyFilterStrength,["strict","medium","lax"])} = "medium"
         %% DataStorage
-        RawDataFile         string
-        RawDataFileObj      (1,1)
+        RawDataFileObj      (1,:)
         TempDataFile        string
         TempDataFileObj     (1,1)
         ROIDataFile         string
@@ -119,20 +116,20 @@ classdef RawData
                 obj.mainWindow = uifigure;
             end
             obj.groupName = groupName;
-            obj.RawDataFile = tempname +".mat";
             obj.ROIDataFile = tempname +".mat";
-            obj = obj.initializeStorageFile;
+
         end
         %% Handling MS files
 
-        function obj = readData(obj,dllPath)
+        function obj = readData(obj)
             files = obj.dataFile;
             nFile = size(files,1);
             %preallocation
             MSData = struct('file',[],...
                 'startTimeStamp',[],...
                 'nSpectra',[],...
-                'spectra',[]);
+                'spectraMS1',[],...
+                'spectraMS2',[]);
             
              FileInfo =  struct('numberOfScansMS1',[],...
                 'numberOfScansMSn',[],...
@@ -143,24 +140,14 @@ classdef RawData
 
             parfor iFile = 1:nFile
                 % read file into struct
-                currentFile = readMSfile_pwiz(files{iFile},dllPath);
-
-                % pre-process raw data
-                % denoise
-                currentFile = denoiseScans(currentFile,"variable");
-                % centroid All Scans
-                currentFile = centroidScans(currentFile);
-                % Normalize MS2
-                currentFile = normalizeMS2Scans(currentFile);
-                % compress
-                currentFile = compressScans(currentFile);
+                currentFile = importMZML(files{iFile});
 
                 % gather scan infos
-                FileInfo(iFile).numberOfScansMS1 = sum([currentFile.spectra.msLevel]==1);
-                FileInfo(iFile).numberOfScansMSn = sum([currentFile.spectra.msLevel] > 1);
-                FileInfo(iFile).startTime = currentFile.spectra(1).rt;
-                FileInfo(iFile).endTime = currentFile.spectra(end).rt;
-
+                FileInfo(iFile).numberOfScansMS1 = numel([currentFile.spectraMS1]);
+                FileInfo(iFile).numberOfScansMSn = numel([currentFile.spectraMS2]);
+                FileInfo(iFile).startTime = currentFile.spectraMS1(1).rt;
+                FileInfo(iFile).endTime = currentFile.spectraMS1(end).rt;
+                
                 MSData(iFile) = currentFile;
             end
 
@@ -175,8 +162,24 @@ classdef RawData
             obj.measurementStartTime = round(min([FileInfo.startTime]),1);
             obj.measurementEndTime = round(max([FileInfo.endTime]),1);
 
-            %store data on disk
-            obj.RawDataFileObj.Data = MSData;
+            % sort MS data based on start time stamp
+            [~, idx] = sort([MSData.startTimeStamp]);    % ascending
+            % apply sort to struct
+            MSData = MSData(idx);
+
+            % %% Change timestamps for test sequence data
+            % MSData(4).startTimeStamp(1) = '30-Aug-2023 20:00:00';
+            % MSData(5).startTimeStamp(1) = '30-Aug-2023 23:50:01';
+            % MSData(6).startTimeStamp(1) = '31-Aug-2023 03:00:52';
+            % [~, idx] = sort([MSData.startTimeStamp]);    % ascending
+            % % apply sort to struct
+            % MSData = MSData(idx);
+            % obj.fileName = {MSData.file}';
+
+            % determine file type (blank,QC,sample)
+            obj = obj.determineFileType;
+            
+            obj.RawDataFileObj = MSData;
         end
 
         %% Data Processing
@@ -196,28 +199,21 @@ classdef RawData
                 title = "Processing " + obj.groupName;
                 progressBar = uiprogressdlg(obj.mainWindow,"Title",title,"Message","Preparation",Value=0);
             end
-
-            %build TempDataFile
-            obj.TempDataFile = tempname +".mat";
-            obj.TempDataFileObj = matfile(obj.TempDataFile,Writable=true);
-            %predefine Variables in .mat file
-            obj.TempDataFileObj.ROICells  = {[]};
-            obj.TempDataFileObj.TimeCells  = {[]};
-            obj.TempDataFileObj.ROIMat = [];
-            obj.TempDataFileObj.ROIMatBLK  = [];
-            obj.TempDataFileObj.ROImzVec = [];
-            obj.TempDataFileObj.timeVec  = [];
-
+            
+            obj = obj.initializeTemporaryFile;
+            
             %remove scans outside RT range
+            progressBar.Value = 0.1;
+            progressBar.Message = "Loading data";
             obj = obj.cutScansToSize;
             obj.nScan = cellfun(@numel,obj.TempDataFileObj.TimeCells);
             progressBar.Value = 0.33;
-
+            progressBar.Message = "Processing";
             switch obj.ionisationType
                 case "Hard"
-                    [Output,obj] = obj.extractFeatures_HardIonisation;
+                    [Output,obj] = obj.extractFeatures_HardIonisation(progressBar);
                 case "Soft"
-                    [Output,obj] = obj.extractFeatures_SoftIonisation;
+                    [Output,obj] = obj.extractFeatures_SoftIonisation(progressBar);
             end
 
             %processing cleanup
@@ -236,7 +232,7 @@ classdef RawData
             close(progressBar)
         end
         %% Soft Ionisation Functions
-        function [Output,obj] = extractFeatures_SoftIonisation(obj)
+        function [Output,obj] = extractFeatures_SoftIonisation(obj,progressBar)
             % remove isotopes
             if obj.useIsotopeFilter == true
                 progressBar.Message = "Removing Isotopes";
@@ -254,12 +250,6 @@ classdef RawData
             progressBar.Message = "Searching for ROIs";
             obj = obj.findRegionOfInterest("batch");
             progressBar.Value = 0.5;
-
-            % Average BLK
-            if obj.useBlankSubtraction == true && nBlanks > 1
-                obj = obj.averageBlankFiles;
-                nData = size(obj.TempDataFileObj.ROICells,1); % update number of matrices
-            end
 
             %Common Contaminant filter
             if obj.useContaminantFilter == true
@@ -288,27 +278,14 @@ classdef RawData
                 obj = obj.alignPeaks("batch");
                 progressBar.Value = progressBar.Value + 0.05;
             end
-
-            if obj.useBlankSubtraction == true % Separate Blank data from Sample data
-                tempBLK = obj.TempDataFileObj.ROICells(end,1);
-                obj.TempDataFileObj.ROIMatBLK = sparse(tempBLK{:});
-                obj.TempDataFileObj.ROICells(end) = [];
-                obj.TempDataFileObj.TimeCells(end) = [];
-            end
-
-            % subtract blank before IS normalization
-            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "BlankIS"
+            
+            % Blank Correction
+            if any(contains(obj.fileType,"blank")) % Separate Blank data from Sample data and subtract
                 progressBar.Message = "Subtracting Blank";
-                peakCells = obj.TempDataFileObj.ROICells;
-                blankMat = obj.TempDataFileObj.ROIMatBLK;
-                parfor iFile = 1:size(peakCells,1)
-                    peakCells{iFile,1} = peakCells{iFile,1}-blankMat;
-                    % set possible negative values to 0
-                    peakCells{iFile,1} = max(peakCells{iFile,1},0);
-                end
-                obj.TempDataFileObj.ROICells = peakCells;
+                obj = obj.blankCorrection;
                 progressBar.Value = progressBar.Value + 0.05;
             end
+
             % pad arrays with Maximum peak width*1.5 Scans to eliminate
             % integration interference between matrices
             obj = obj.finalizeROI;
@@ -324,21 +301,7 @@ classdef RawData
                 end
                 progressBar.Value = progressBar.Value + 0.05;
             end
-            % BLK Subtraction after IS Correction
-            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "ISBlank"
-                progressBar.Message = "Subtracting Blank";
-                roiDataFile = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
-                roiDataBlank = obj.TempDataFileObj.ROIMatBLK;
-                parfor iFile = 1:size(roiDataFile,1)
-                    roiDataFile{iFile,1} = roiDataFile{iFile,1}-padarray(roiDataBlank,size(roiDataFile{iFile,1},1)-size(roiDataBlank,1),0,'post');
-                end
-                roiDataFile = vertcat(roiDataFile{:});
-                roiDataFile = max(roiDataFile,0);
-                hasPeak = any(roiDataFile == 0,1);
-                obj.TempDataFileObj.ROIMat = roiDataFile(:,hasPeak);
-                obj.TempDataFileObj.ROImzVec(:,~hasPeak) = [];
-                progressBar.Value = progressBar.Value + 0.05;
-            end
+
             % mass correction
             if obj.useISMassCorrection == true && ~isempty(obj.internalStandardMassDelta)
                 progressBar.Message = "Performing IS mass correction";
@@ -369,8 +332,14 @@ classdef RawData
             Output = obj.initializeOutputStruct(IntegrationData);
 
             % Build Storage Arrays and filter by number of occurrences
-            [FeatureData,obj] = obj.buildFeatureArray(IntegrationData);
-            clearvars IntegrationData IDX
+            switch obj.ionisationType
+                case "Hard"
+                    [FeatureData,obj] = obj.buildFeatureArray_Hard(IntegrationData);
+                case "Soft"
+                    [FeatureData,obj] = obj.buildFeatureArray_Soft(IntegrationData);
+            end
+           
+            clearvars IntegrationData
 
             % apply scaling
             if obj.useScaling == true
@@ -385,6 +354,28 @@ classdef RawData
             progressBar.Value = 1;
 
             obj.Output = Output;
+            delete(progressBar)
+        end
+
+        function obj = determineFileType(obj)
+            % determine file type (blank, QC sample) from file name
+            dataType = strings(size(obj.fileName));
+            dataType(1:end) = "sample";
+
+            name = obj.fileName;
+
+            % check filename for 'Blank' or 'QC' (case-insensitive)
+            idxBlankProcess = contains(name,["ProcessBlank","Blank"],"IgnoreCase",true);
+            idxBlankSystem = contains(name,["BW","SystemBlank"],"IgnoreCase",true);
+            idxQC = contains(name,["50uM_MS","QC","Control","PooledQC"],"IgnoreCase",true);
+            idxSystemSuitability = contains(name,"Suitability","IgnoreCase",true);
+
+            dataType(idxQC) = "QC";
+            dataType(idxSystemSuitability) = "suitability QC";
+            dataType(idxBlankProcess) = "process blank";
+            dataType(idxBlankSystem) = "suitability blank";
+            obj.fileType = dataType;
+
         end
 
         function IntegrationResults = findPeaks_Soft(obj,Index)
@@ -450,23 +441,36 @@ classdef RawData
         function [FeatureResults,obj] = buildFeatureArray_Soft(obj,IntegrationResults,varargin)
 
             FeatureResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
+            
+            if isscalar(varargin)
+                isISIntegration = true;
+            else
+                isISIntegration = false;
+            end
             %check for empty IntegrationResults
             if ~isempty(IntegrationResults)
 
-                nFiles = numel(obj.fileName);
+                nFiles = numel(obj.RawDataFileObj);
 
                 EmptyStruct = struct(...
-                    "featID",strings,...
-                    "mass_measured",[],...
-                    "retentionTime",NaN,...
+                    "ID",strings,...
+                    "mz_measured",[],...
+                    "rt",NaN,...
+                    "Int",NaN(1,nFiles),...
+                    "Area",NaN(1,nFiles),...
+                    "mz_s",NaN(1,nFiles),...
+                    "mz_e",NaN(1,nFiles),...
+                    "rt_s",NaN(1,nFiles),...
+                    "rt_e",NaN(1,nFiles),...
+                    "PWMD",NaN(1,nFiles),...
+                    "PWTD",NaN(1,nFiles),...
+                    "Q",NaN(1,nFiles),...
+                    "peakLocation",NaN(1,nFiles),...
+                    "peakBorder",NaN(2,nFiles),...
+                    "peakRTs",NaN(1,nFiles),...
                     "adductType",strings,...
-                    "mass_corrected",[],...
+                    "mass",[],...
                     "formula",strings,...
-                    "peakHeights",NaN(1,nFiles),...
-                    "peakAreas",NaN(1,nFiles),...
-                    "peakLocations",NaN(1,nFiles),...
-                    "peakBorders",NaN(2,nFiles),...
-                    "retentionTimes",NaN(1,nFiles),...
                     "signal2Noise",NaN(1,nFiles),...
                     "entropy",NaN(1,nFiles),...
                     "XIC",cell(1),...
@@ -483,17 +487,11 @@ classdef RawData
                 %gather tolerances
                 timeTolerance = obj.peakTimeTolerance;
 
-                if isscalar(varargin)
-                    isISIntegration = true;
-                else
-                    isISIntegration = false;
-                end
-
                 %match features and store in feature struct
 
                 parfor iFeature = 1:length(FeatureResults)
                     currentFeatureStruct = EmptyStruct;
-                    currentFeatureStruct.mass_measured = FeatureResults(iFeature).mass;
+                    currentFeatureStruct.mz_measured = FeatureResults(iFeature).mass;
                     currentFeatureStruct.XIC = FeatureResults(iFeature).XIC;
 
                     nPeaks = numel(vertcat(FeatureResults(iFeature).peakLocation{:}));
@@ -516,12 +514,12 @@ classdef RawData
 
                     %store first new entry
                     currentFile = peakData(1,9);
-                    currentFeatureStruct(1).peakLocations(currentFile) = peakData(1,1);
-                    currentFeatureStruct(1).retentionTimes(currentFile) = peakData(1,2);
-                    currentFeatureStruct(1).retentionTime = peakData(1,2);
-                    currentFeatureStruct(1).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
-                    currentFeatureStruct(1).peakHeights(currentFile) = peakData(1,5);
-                    currentFeatureStruct(1).peakAreas(currentFile) = peakData(1,6);
+                    currentFeatureStruct(1).peakLocation(currentFile) = peakData(1,1);
+                    currentFeatureStruct(1).peakRTs(currentFile) = peakData(1,2);
+                    currentFeatureStruct(1).rt = peakData(1,2);
+                    currentFeatureStruct(1).peakBorder(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                    currentFeatureStruct(1).Int(currentFile) = peakData(1,5);
+                    currentFeatureStruct(1).Area(currentFile) = peakData(1,6);
                     currentFeatureStruct(1).entropy(currentFile) = peakData(1,7);
                     currentFeatureStruct(1).signal2Noise(currentFile) = peakData(1,8);
                     currentFeatureStruct(1).asymmetry = peakData(1,10);
@@ -533,59 +531,62 @@ classdef RawData
                         currentRT = peakData(1,2);
                         currentFile = peakData(1,9);
                         currentAsymmetry = peakData(1,10);
-                        id = abs(vertcat(currentFeatureStruct(:).retentionTime)-currentRT)<=timeTolerance;
+                        id = abs(vertcat(currentFeatureStruct(:).rt) - currentRT) <= timeTolerance;
                         matchingRT = sum(id);
 
                         if matchingRT == 0 %no matching RT -> new Feature
                             currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
 
                         elseif matchingRT == 1 %single feature -> store
-                            if isnan(currentFeatureStruct(id).peakLocations(currentFile)) %check if a peak is already present
-                                currentFeatureStruct(id).peakLocations(currentFile) = peakData(1,1);
-                                currentFeatureStruct(id).retentionTimes(currentFile) = peakData(1,2);
-                                currentFeatureStruct(id).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
-                                currentFeatureStruct(id).peakHeights(currentFile) = peakData(1,5);
-                                currentFeatureStruct(id).peakAreas(currentFile) = peakData(1,6);
+                            if isnan(currentFeatureStruct(id).peakLocation(currentFile)) %check if a peak is already present
+                                currentFeatureStruct(id).peakLocation(currentFile) = peakData(1,1);
+                                currentFeatureStruct(id).peakRTs(currentFile) = peakData(1,2);
+                                currentFeatureStruct(id).peakBorder(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                                currentFeatureStruct(id).Int(currentFile) = peakData(1,5);
+                                currentFeatureStruct(id).Area(currentFile) = peakData(1,6);
                                 currentFeatureStruct(id).entropy(currentFile) = peakData(1,7);
                                 currentFeatureStruct(id).signal2Noise(currentFile) = peakData(1,8);
                                 %average retentionTime
-                                currentFeatureStruct(id).retentionTime = mean([currentFeatureStruct(id).retentionTime;peakData(1,2)],'omitnan');
+                                currentFeatureStruct(id).rt = mean([currentFeatureStruct(id).rt;peakData(1,2)],'omitnan');
                             else
                                 currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
                             end
 
                         else %multiple matching features -> store based on asymmetry factor
-                            [~,idA] = min(vertcat(currentFeatureStruct(id).asymmetry)-currentAsymmetry);
-                            if isnan(currentFeatureStruct(idA).peakLocations(currentFile)) %check if a peak is already present
-                                currentFeatureStruct(idA).peakLocations(currentFile) = peakData(1,1);
-                                currentFeatureStruct(idA).retentionTimes(currentFile) = peakData(1,2);
-                                currentFeatureStruct(idA).peakBorders(:,currentFile) = [peakData(1,3);peakData(1,4)];
-                                currentFeatureStruct(idA).peakHeights(currentFile) = peakData(1,5);
-                                currentFeatureStruct(idA).peakAreas(currentFile) = peakData(1,6);
+                            [~,idA] = min(vertcat(currentFeatureStruct(id).asymmetry) - currentAsymmetry);
+                            if isnan(currentFeatureStruct(idA).peakLocation(currentFile)) %check if a peak is already present
+                                currentFeatureStruct(idA).peakLocation(currentFile) = peakData(1,1);
+                                currentFeatureStruct(idA).peakRTs(currentFile) = peakData(1,2);
+                                currentFeatureStruct(idA).peakBorder(:,currentFile) = [peakData(1,3);peakData(1,4)];
+                                currentFeatureStruct(idA).Int(currentFile) = peakData(1,5);
+                                currentFeatureStruct(idA).Area(currentFile) = peakData(1,6);
                                 currentFeatureStruct(idA).entropy(currentFile) = peakData(1,7);
                                 currentFeatureStruct(idA).signal2Noise(currentFile) = peakData(1,8);
                                 %average retentionTime
-                                currentFeatureStruct(idA).retentionTime = mean([currentFeatureStruct(idA).retentionTime;peakData(1,2)],'omitnan');
+                                currentFeatureStruct(idA).rt = mean([currentFeatureStruct(idA).rt;peakData(1,2)],'omitnan');
                             else
                                 currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
                             end
                         end
+                        
                         %remove stored peak from list
                         peakData(1,:) = [];
                     end
 
                     %remove empty struct
-                    id = isnan([currentFeatureStruct(:).retentionTime])';
+                    id = isnan([currentFeatureStruct(:).rt])';
                     currentFeatureStruct(id) = [];
-
+                    % get final feature rt
+                    for jStruct = 1:numel(currentFeatureStruct)
+                        currentFeatureStruct(jStruct).rt = mean(currentFeatureStruct(jStruct).peakRTs,"all","omitmissing");
+                    end
                     %store currentFeatureStruct
                     storedFeatures{iFeature,1} = currentFeatureStruct;
                 end
 
                 %unzip features
                 storedFeatures = vertcat(storedFeatures{:});
-                %remove asymmetry field
-                storedFeatures = rmfield(storedFeatures,"asymmetry");
+
                 if isISIntegration == false
                     %gather original scans
                     storedFeatures = obj.findOriginalMassScans(storedFeatures);
@@ -597,6 +598,10 @@ classdef RawData
                     storedFeatures = obj.confirmSameFeatureByIsotopeDistribution(storedFeatures);
                     % Occurrence filter
                     [storedFeatures,obj.occurenceFiltered] = obj.occurrenceFilterFeatures(storedFeatures);
+                    % calculate Peak width MZ dimension
+                    storedFeatures = obj.calculatePeakWidth_MZ(storedFeatures);
+                    % calculate Peak width Time dimension
+                    storedFeatures = obj.calculatePeakWidth_Time(storedFeatures);
                     % build feature isotope pattern
                     storedFeatures = obj.averageIsotopePattern(storedFeatures);
                     storedFeatures = obj.correctMassByChargeState(storedFeatures);
@@ -611,7 +616,7 @@ classdef RawData
         end
 
         %% Hard Ionisation Functions
-        function [Output,obj] = extractFeatures_HardIonisation(obj)
+        function [Output,obj] = extractFeatures_HardIonisation(obj,progressBar)
 
 
             if obj.useMassAlign == true
@@ -624,12 +629,6 @@ classdef RawData
             progressBar.Message = "Searching for ROIs";
             obj = obj.findRegionOfInterest("batch");
             progressBar.Value = 0.5;
-
-            % Average BLK
-            if obj.useBlankSubtraction == true && nBlanks > 1
-                obj = obj.averageBlankFiles;
-                nData = size(obj.TempDataFileObj.ROICells,1); % update number of matrices
-            end
 
             % Baseline Correction
             if obj.useBaselineCorrection == true
@@ -651,15 +650,12 @@ classdef RawData
                 progressBar.Value = progressBar.Value + 0.05;
             end
 
-            if obj.useBlankSubtraction == true % Separate Blank data from Sample data
+            % Blank Correction
+            if any(contains(obj.fileType,"blank")) % Separate Blank data from Sample data and subtract
                 tempBLK = obj.TempDataFileObj.ROICells(end,1);
                 obj.TempDataFileObj.ROIMatBLK = sparse(tempBLK{:});
                 obj.TempDataFileObj.ROICells(end) = [];
                 obj.TempDataFileObj.TimeCells(end) = [];
-            end
-
-            % subtract blank before IS normalization
-            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "BlankIS"
                 progressBar.Message = "Subtracting Blank";
                 peakCells = obj.TempDataFileObj.ROICells;
                 blankMat = obj.TempDataFileObj.ROIMatBLK;
@@ -671,6 +667,7 @@ classdef RawData
                 obj.TempDataFileObj.ROICells = peakCells;
                 progressBar.Value = progressBar.Value + 0.05;
             end
+
             % pad arrays with Maximum peak width*3 Scans to eliminate
             % integration interference between matrices
             obj = obj.finalizeROI;
@@ -686,21 +683,7 @@ classdef RawData
                 end
                 progressBar.Value = progressBar.Value + 0.05;
             end
-            % BLK Subtraction after IS Correction
-            if obj.useBlankSubtraction == true && obj.internalStandardOrder == "ISBlank"
-                progressBar.Message = "Subtracting Blank";
-                roiDataFile = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
-                roiDataBlank = obj.TempDataFileObj.ROIMatBLK;
-                parfor iFile = 1:size(roiDataFile,1)
-                    roiDataFile{iFile,1} = roiDataFile{iFile,1}-padarray(roiDataBlank,size(roiDataFile{iFile,1},1)-size(roiDataBlank,1),0,'post');
-                end
-                roiDataFile = vertcat(roiDataFile{:});
-                roiDataFile = max(roiDataFile,0);
-                id = all(roiDataFile >= obj.roiThreshold,1);
-                obj.TempDataFileObj.ROIMat = roiDataFile(:,id);
-                obj.TempDataFileObj.ROImzVec(:,~id) = [];
-                progressBar.Value = progressBar.Value + 0.05;
-            end
+            
             % mass correction
             if obj.useInternalStandard == true && ~isempty(obj.interalStandardIntensity)
                 progressBar.Message = "Performing IS mass correction";
@@ -745,6 +728,7 @@ classdef RawData
             progressBar.Value = 1;
 
             obj.Output = Output;
+            delete(progressBar)
         end
 
         function IntegrationResults = findPeaks_Hard(obj)
@@ -1131,34 +1115,90 @@ classdef RawData
             end
         end
 
-        function obj = averageBlankFiles(obj) %%%% WIP %%%%
-            %% averageBlankFiles calculates an average file from all blank files
+        function obj = blankCorrection(obj)
+            %% blankCorrection performs automatic blank subtraction for full sequences
             % Takes reapeating blank files in the TempDataFile, calculates the
             % average and replaces each block with the average blank.
 
             %gather data
-            list = numel(obj.fileType);
-            roiCell = obj.TempDataFileObj.roiCells;
-            timeCell = obj.TempDataFileObj.timeCells;
-            MAX_SCAN = max(obj.nScan);
+            dataType = obj.fileType;
+            roiCells = obj.TempDataFileObj.ROICells;
+            timeCells = obj.TempDataFileObj.TimeCells;
+            %% subtract system Blanks (all files)
+            isSystemBlank = strcmp(dataType,"suitability blank");
+            nBlank = sum(isSystemBlank);
+            blankCells = roiCells(isSystemBlank);
+            roiCells = roiCells(~isSystemBlank);
+            blankMat = zeros(size(blankCells{1}));
+            if nBlank > 1 % average blank files
+                for iBlank = 1:numel(blankCells)
+                    blankMat = blankMat + blankCells{iBlank,1};
+                end
+                blankMat = blankMat / nBlank;
 
-            blankFiles = vertcat(roiCell{end-N_BLANK+1:end});
-            blankFiles = reshape(blankFiles,MAX_SCAN,size(blankFiles,2),N_BLANK);
-            blankFiles = mean(blankFiles,3);
-            blankTimes = horzcat(timeCell{end-N_BLANK+1:end});
+            else  % extract cell
+                blankMat = blankCells{:};
+            end
 
-            %replace 0 with NaN then ignore NaN in median calculation
-            blankTimes(blankTimes == 0) = NaN;
-            blankTimes = median(blankTimes,2,"omitnan");
-            blankTimes(isnan(blankTimes)) = 0;
-            %replace blank data with average blank
-            roiCell(end-N_BLANK+1:end) = [];
-            timeCell(end-N_BLANK+1:end) = [];
-            roiCell{end+1} = blankFiles;
-            timeCell{end+1} = blankTimes;
-            %store on disk
-            obj.TempDataFileObj.roiCells = roiCell;
-            obj.TempDataFileObj.timeCells = timeCell;
+            for iFile = 1:height(roiCells)
+                roiCells{iFile,1} = max(roiCells{iFile,1} - blankMat,0);
+            end
+
+            % save 
+            obj.TempDataFileObj.ROIMatSystemBLK = sparse(blankMat);
+            % remove processed blank data
+            timeCells(isSystemBlank) = []; 
+            obj.nScan(isSystemBlank) = [];
+            obj.sampleScale(isSystemBlank) = [];
+            dataType(isSystemBlank) = [];
+            obj.RawDataFileObj(isSystemBlank) = [];
+
+            %% subtract process blanks from segments between blanks
+
+            % Find indices of "process blank"
+            blankIdx = find(strcmp(dataType, "process blank"));
+            maxIndex = numel(roiCells);
+
+            for iBlank = 1:numel(blankIdx)
+                idxBlank = blankIdx(iBlank);
+
+                % start just after this blank
+                startIdx = idxBlank + 1;
+
+                % end before the next blank, or to the end if this is the last one
+                if iBlank < numel(blankIdx)
+                    endIdx = blankIdx(iBlank+1) - 1;
+                else
+                    endIdx = maxIndex;
+                end
+
+                % Value of this process blank
+                blankMat = roiCells{idxBlank};
+
+                % If nothing after this blank, skip
+                if startIdx > endIdx
+                    continue
+                else
+
+                % Subtract from all following cells in this block
+                for jFile = startIdx:endIdx
+                    roiCells{jFile} = max(roiCells{jFile} - blankMat,0);
+                end
+                end
+            end
+            obj.TempDataFileObj.ROIMatProcessBLK = roiCells(blankIdx);
+            
+            %remove processed blank data from obj
+            timeCells(blankIdx) = [];
+            roiCells(blankIdx) = [];
+            obj.nScan(blankIdx) = [];
+            obj.sampleScale(blankIdx) = [];
+            dataType(blankIdx) = [];
+            obj.fileType = dataType;
+            % store corrected data on disk
+            obj.RawDataFileObj(blankIdx) = [];
+            obj.TempDataFileObj.TimeCells = timeCells;
+            obj.TempDataFileObj.ROICells = roiCells;
         end
 
         function obj = removeContaminants(obj)
@@ -1542,8 +1582,8 @@ classdef RawData
             %% removes scans outside specified time range and initializes TempDataFileObj
             START_TIME = obj.measurementStartTime;
             END_TIME = obj.measurementEndTime;
-            tempPeakData = obj.RawDataFileObj.centroidDataMS1;
-            tempTimeData = obj.RawDataFileObj.timeDataMS1;
+            tempPeakData = obj.TempDataFileObj.ROICells;
+            tempTimeData = obj.TempDataFileObj.TimeCells;
 
             parfor iFile = 1:size(tempPeakData,1)
                 idx = tempTimeData{iFile,1} < START_TIME | tempTimeData{iFile,1} > END_TIME;
@@ -1646,7 +1686,6 @@ classdef RawData
             STEP_SIZE = obj.baselineStepSize;
             REGRESSION = obj.baselineRegressionMethod;
             ESTIMATION = obj.baselineEstimationMethod;
-            SMOOTHING = obj.baselineSmoothMethod;
             QUANTIL = obj.baselineQuantil;
 
             parfor iFile = 1:size(msRoi,1)
@@ -1654,7 +1693,7 @@ classdef RawData
                 %depad Array
                 msRoiTemp = msRoi{iFile,1};
                 [msRoiTemp,timeTemp] = depadArrays(msRoiTemp,time{iFile,1});
-                msRoiTemp = msbackadj(timeTemp,msRoiTemp,'WindowSize',WINDOW_SIZE,'StepSize',STEP_SIZE,'RegressionMethod',REGRESSION,'EstimationMethod',ESTIMATION,'SmoothMethod',SMOOTHING,'QuantileValue',QUANTIL,'PreserveHeights',true);
+                msRoiTemp = msbackadj(timeTemp,msRoiTemp,'WindowSize',WINDOW_SIZE,'StepSize',STEP_SIZE,'RegressionMethod',REGRESSION,'EstimationMethod',ESTIMATION,'SmoothMethod','none','QuantileValue',QUANTIL,'PreserveHeights',true);
                 %remove negative, NaN and re-pad Array
                 msRoiTemp = max(msRoiTemp,0);
                 msRoiTemp(isnan(msRoiTemp)) = 0;
@@ -1763,9 +1802,6 @@ classdef RawData
             %remove empty columns
             id = all(msTemp == 0,1);
             msTemp(:,id) = [];
-            if obj.useBlankSubtraction == true
-                obj.TempDataFileObj.ROIMatBLK(:,id) = [];
-            end
             obj.TempDataFileObj.ROImzVec(id) = [];
             obj.TempDataFileObj.ROIMat = sparse(msTemp);
             obj.TempDataFileObj.timeVec = round(vertcat(time{:}),1);
@@ -1915,22 +1951,26 @@ classdef RawData
         end
 
         function OutputStruct = findOriginalMassScans(obj,FeatureStruct)
-            %% gathers MS1 spectra for each feature and aligns them
+            %% gathers MS1 spectra for each feature
             OutputStruct = FeatureStruct;
-            allScans = obj.RawDataFileObj.profileDataMS1;
+            % load data
+            allDataStruct = obj.RawDataFileObj;
+            % preallocation
+            nFile = numel(allDataStruct);
+            allScans = cell(nFile,1);
             % append all scans with spacers in between, to match processing
             % indices
-            for iScan = 1:numel(obj.dataFile)
-                temp = allScans{iScan,1};
+            for iScan = 1:nFile
+                temp = {allDataStruct(iScan).spectraMS1.processedScan}';
                 temp(obj.nScanPadded(iScan),1) = {[]};
                 allScans{iScan,1} = temp;
             end
             allScans = vertcat(allScans{:});
-            nFile = numel(obj.dataFile);
-
-            parfor iFeature = 1: length(FeatureStruct)
+            
+            %% find original MS1 spectra
+            parfor iFeature = 1:numel(FeatureStruct)
                 spectra = cell(1,nFile);
-                location = FeatureStruct(iFeature).peakBorders;
+                location = FeatureStruct(iFeature).peakBorder;
 
                 for jFile = 1:nFile
                     %check if borders contain NaN then skip iteration
@@ -1942,8 +1982,7 @@ classdef RawData
                     %remove possible empty scans
                     scans(cellfun(@isempty, scans)) = [];
                     if ~isempty(scans)
-                        %average scan
-                        spectra{1,jFile} = alignSpectra(scans,"average","high","false");
+                        spectra{1,jFile} = scans;
                     else
                         spectra{1,jFile} = {[]};
                     end
@@ -2027,14 +2066,18 @@ classdef RawData
                     end
 
                 otherwise %ESI
-                    %
+                    
+                    % determine Adduct type
+
+                    % calculate corrected mass based on adduct Type or Database
+
                     % calculate formula
                     featureStruct = obj.calculateFormulaFromMass(featureStruct);
 
-                    % add Adduct type
+                    
                     % ESI check ms1 spectrum
 
-                    % calculate corrected mass based on adduct Type or Database
+                    
             end
             %store final struct
             Output.feature = featureStruct;
@@ -2074,7 +2117,7 @@ classdef RawData
             tolerance = obj.betweenFileMassTolerance;
             tolUnit = obj.betweenFileMassUnit;
 
-            parfor iFeature = 1:height(featureStruct)
+            parfor iFeature = 1:numel(featureStruct)
                 currentMass = featureStruct(iFeature).mass_corrected;
                 % determine Cl,Br and S counts from isotope distribution
                 elementHits = detectIsotopicElements(featureStruct(iFeature).isotopePattern(:,1), featureStruct(iFeature).isotopePattern(:,2), featureStruct(iFeature).chargeState);
@@ -2122,15 +2165,32 @@ classdef RawData
         end
 
         %% Data handling
-        function obj = initializeStorageFile(obj)
-            %check if file already exists
-            if isfile(obj.RawDataFile)
-                delete(obj.RawDataFile)
-            end
-            obj.RawDataFileObj = matfile(obj.RawDataFile,Writable=true);
-
+        function obj = initializeTemporaryFile(obj)
+            %build TempDataFile
+            obj.TempDataFile = tempname +".mat";
+            obj.TempDataFileObj = matfile(obj.TempDataFile,Writable=true);
             %predefine Variables in .mat file
-            obj.RawDataFileObj.previewTICs = struct();
+            obj.TempDataFileObj.ROICells  = {[]};
+            obj.TempDataFileObj.TimeCells  = {[]};
+            obj.TempDataFileObj.ROIMat = [];
+            obj.TempDataFileObj.ROIMatProcessBLK  = {[]};
+            obj.TempDataFileObj.ROIMatSystemBLK  = [];
+            obj.TempDataFileObj.ROImzVec = [];
+            obj.TempDataFileObj.timeVec  = [];
+            % load MS1 Data from RawFile
+
+            % MSData = load(obj.RawDataFile,"MSData");
+            % MSData = MSData.MSData;
+            MSData = obj.RawDataFileObj;
+            nFiles = numel(MSData);
+            timeCells = cell(nFiles,1);
+            spectraCells = timeCells;
+            for iFile = 1:nFiles
+                timeCells{iFile,1} = [MSData(iFile).spectraMS1.rt]';
+                spectraCells{iFile,1} = {MSData(iFile).spectraMS1.centroidedScan}';
+            end
+            obj.TempDataFileObj.ROICells = spectraCells;
+            obj.TempDataFileObj.TimeCells = timeCells;
         end
 
         function obj = setOptimizationOptions(obj,optimizeMode,bayesOptions) %%%% WIP %%%%
@@ -2164,9 +2224,6 @@ classdef RawData
                     end
                     if ismember("entropyFilter",bayesOptions.Properties.VariableNames)
                         obj.useEntropyFilter = bayesOptions.entropyFilter == "true";
-                    end
-                    if ismember("blankCorrection",bayesOptions.Properties.VariableNames)
-                        obj.useBlankSubtraction = bayesOptions.blankCorrection == "true";
                     end
                     if ismember("contaminantFilter",bayesOptions.Properties.VariableNames)
                         obj.useContaminantFilter = bayesOptions.contaminantFilter == "true";
@@ -2222,7 +2279,7 @@ classdef RawData
                     end
                     %baseline parameters
                     %always set smoothing to none
-                    obj.baselineSmoothMethod = "none";
+
                     if ismember("windowSize",bayesOptions.Properties.VariableNames)
                         obj.baselineWindowSize = bayesOptions.windowSize;
                     end
@@ -2279,9 +2336,6 @@ classdef RawData
                                 obj.entropyFilterStrength = bayesOptions.entropyStrength;
                             end
                         end
-                    end
-                    if ismember("blankCorrection",bayesOptions.Properties.VariableNames)
-                        obj.useBlankSubtraction = bayesOptions.blankCorrection == "true";
                     end
                     if ismember("contaminantFilter",bayesOptions.Properties.VariableNames)
                         obj.useContaminantFilter = bayesOptions.contaminantFilter == "true";
@@ -2344,8 +2398,6 @@ classdef RawData
                     if ismember("baselineCorrection",bayesOptions.Properties.VariableNames)
                         obj.useBaselineCorrection = bayesOptions.baselineCorrection == "true";
                         if bayesOptions.baselineCorrection == "true"
-                            %always set smoothing to none
-                            obj.baselineSmoothMethod = "none";
                             if ismember("windowSize",bayesOptions.Properties.VariableNames)
                                 obj.baselineWindowSize = bayesOptions.windowSize;
                             end
@@ -2357,9 +2409,6 @@ classdef RawData
                             end
                             if ismember("estimationMethod",bayesOptions.Properties.VariableNames)
                                 obj.baselineEstimationMethod = bayesOptions.estimationMethod;
-                            end
-                            if ismember("smoothingMethod",bayesOptions.Properties.VariableNames)
-                                obj.baselineSmoothMethod = bayesOptions.smoothingMethod;
                             end
                             if ismember("quantile",bayesOptions.Properties.VariableNames)
                                 obj.baselineQuantil = bayesOptions.quantile;

@@ -21,7 +21,7 @@ end
 
 spectras = msDataStruct.spectra;
 
-parfor iScan = 1:msDataStruct.nSpectra
+for iScan = 1:msDataStruct.nSpectra
 
     %check if already centroid
     if spectras(iScan).dataType == "profile"
