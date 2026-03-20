@@ -251,7 +251,7 @@ classdef RawData
             obj = obj.findRegionOfInterest("batch");
             progressBar.Value = 0.5;
 
-            %Common Contaminant filter
+            % Common Contaminant filter %%% must be updated %%%
             if obj.useContaminantFilter == true
                 progressBar.Message = "Removing Contaminants";
                 obj = obj.removeContaminants;
@@ -280,7 +280,7 @@ classdef RawData
             end
             
             % Blank Correction
-            if any(contains(obj.fileType,"blank")) % Separate Blank data from Sample data and subtract
+            if any(contains(obj.fileType,"blank"))
                 progressBar.Message = "Subtracting Blank";
                 obj = obj.blankCorrection;
                 progressBar.Value = progressBar.Value + 0.05;
@@ -334,9 +334,9 @@ classdef RawData
             % Build Storage Arrays and filter by number of occurrences
             switch obj.ionisationType
                 case "Hard"
-                    [FeatureData,obj] = obj.buildFeatureArray_Hard(IntegrationData);
+                    [FeatureData,obj] = obj.buildFeatureArray_Hard(IntegrationData,false); %% needs rework
                 case "Soft"
-                    [FeatureData,obj] = obj.buildFeatureArray_Soft(IntegrationData);
+                    [FeatureData,obj] = obj.buildFeatureArray_Soft(IntegrationData,false); %% WIP %%
             end
            
             clearvars IntegrationData
@@ -438,15 +438,10 @@ classdef RawData
             IntegrationResults = obj.integratePeaks(IntegrationResults,timeArray);
         end
 
-        function [FeatureResults,obj] = buildFeatureArray_Soft(obj,IntegrationResults,varargin)
+        function [FeatureResults,obj] = buildFeatureArray_Soft(obj,IntegrationResults,isISIntegration)
 
             FeatureResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
             
-            if isscalar(varargin)
-                isISIntegration = true;
-            else
-                isISIntegration = false;
-            end
             %check for empty IntegrationResults
             if ~isempty(IntegrationResults)
 
@@ -476,20 +471,20 @@ classdef RawData
                     "XIC",cell(1),...
                     "spectrumMS1",cell(1),...
                     "spectrumMS2",cell(1),...
-                    "asymmetry",[]);
+                    "asymmetry",NaN(1,nFiles));
                 EmptyStruct.spectrumMS1 = cell(1,nFiles);
                 EmptyStruct.spectrumMS2 = cell(1,nFiles);
                 EmptyStruct.isotopePattern = cell(1,nFiles);
                 EmptyStruct.chargeState = NaN(1,nFiles);
 
-                storedFeatures = cell(length(FeatureResults),1);
+                storedFeatures = cell(numel(FeatureResults),1);
 
                 %gather tolerances
                 timeTolerance = obj.peakTimeTolerance;
 
                 %match features and store in feature struct
 
-                parfor iFeature = 1:length(FeatureResults)
+                parfor iFeature = 1:numel(FeatureResults)
                     currentFeatureStruct = EmptyStruct;
                     currentFeatureStruct.mz_measured = FeatureResults(iFeature).mass;
                     currentFeatureStruct.XIC = FeatureResults(iFeature).XIC;
@@ -522,7 +517,7 @@ classdef RawData
                     currentFeatureStruct(1).Area(currentFile) = peakData(1,6);
                     currentFeatureStruct(1).entropy(currentFile) = peakData(1,7);
                     currentFeatureStruct(1).signal2Noise(currentFile) = peakData(1,8);
-                    currentFeatureStruct(1).asymmetry = peakData(1,10);
+                    currentFeatureStruct(1).asymmetry(currentFile) = peakData(1,10);
                     peakData(1,:) = [];
 
                     %assign remaining peaks to features
@@ -546,6 +541,7 @@ classdef RawData
                                 currentFeatureStruct(id).Area(currentFile) = peakData(1,6);
                                 currentFeatureStruct(id).entropy(currentFile) = peakData(1,7);
                                 currentFeatureStruct(id).signal2Noise(currentFile) = peakData(1,8);
+                                currentFeatureStruct(id).asymmetry(currentFile) = peakData(1,10);
                                 %average retentionTime
                                 currentFeatureStruct(id).rt = mean([currentFeatureStruct(id).rt;peakData(1,2)],'omitnan');
                             else
@@ -553,7 +549,7 @@ classdef RawData
                             end
 
                         else %multiple matching features -> store based on asymmetry factor
-                            [~,idA] = min(vertcat(currentFeatureStruct(id).asymmetry) - currentAsymmetry);
+                            [~,idA] = min(vertcat(mean(currentFeatureStruct(id).asymmetry,"all","omitmissing")) - currentAsymmetry);
                             if isnan(currentFeatureStruct(idA).peakLocation(currentFile)) %check if a peak is already present
                                 currentFeatureStruct(idA).peakLocation(currentFile) = peakData(1,1);
                                 currentFeatureStruct(idA).peakRTs(currentFile) = peakData(1,2);
@@ -562,6 +558,7 @@ classdef RawData
                                 currentFeatureStruct(idA).Area(currentFile) = peakData(1,6);
                                 currentFeatureStruct(idA).entropy(currentFile) = peakData(1,7);
                                 currentFeatureStruct(idA).signal2Noise(currentFile) = peakData(1,8);
+                                currentFeatureStruct(id).asymmetry(currentFile) = peakData(1,10);
                                 %average retentionTime
                                 currentFeatureStruct(idA).rt = mean([currentFeatureStruct(idA).rt;peakData(1,2)],'omitnan');
                             else
@@ -704,7 +701,7 @@ classdef RawData
 
             Output = obj.initializeOutputStruct(IntegrationData);
             % Build Storage Arrays
-            FeatureData = obj.buildFeatureArray_Hard(IntegrationData);
+            FeatureData = obj.buildFeatureArray_Hard(IntegrationData,false);
 
             % confirm same feature by MS2 comparison
             FeatureData = obj.confirmSameFeatureByMS2(FeatureData);
@@ -778,7 +775,7 @@ classdef RawData
             IntegrationResults = obj.integratePeaks(IntegrationResults,currentTime);
         end
 
-        function FeatureData = buildFeatureArray_Hard(obj,IntegrationResults,varargin)
+        function FeatureData = buildFeatureArray_Hard(obj,IntegrationResults,isISIntegration)
             nFiles = numel(obj.fileName);
 
             xicData = IntegrationResults(1).XIC;
@@ -808,12 +805,6 @@ classdef RawData
             TIMETOLERANCE = obj.peakTimeTolerance;
             MASSTOLERANCE = obj.betweenFileMassTolerance;
             MASSUNIT = obj.betweenFileMassUnit;
-
-            if isscalar(varargin)
-                isISIntegration = true;
-            else
-                isISIntegration = false;
-            end
 
             %match features and store in feature struct
 
@@ -934,7 +925,8 @@ classdef RawData
         %% Furter Processing
         function outputStruct = gatherMS2Spectra(obj,FeatureStruct)
             %check if MSn data exists, skip if not
-            if isscalar(obj.RawDataFileObj.centroidDataMS2)
+            
+            if isempty([obj.RawDataFileObj.spectraMS2])
                 outputStruct = FeatureStruct;
                 return
             end
@@ -1237,12 +1229,9 @@ classdef RawData
         function obj = internalStandardNormalization(obj) %%%% MUST BE UPDATED %%%%
             %% MUST BE UPDATED TO NEW PROCESSING
             %Gather relevant matrices
-            if obj.applyISto == "S&B"
-                Data = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
-                Data{end+1} = obj.TempDataFileObj.ROIMatBLK;
-            else
-                Data = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
-            end
+
+            Data = mat2cell(obj.TempDataFileObj.ROIMat,obj.nScanPadded);
+
 
             timeVectors = mat2cell(obj.TempDataFileObj.timeVec,obj.nScanPadded);
 
@@ -1271,10 +1260,6 @@ classdef RawData
             end
 
             %store corrected Matrices back into object
-            if obj.applyISto == "S&B"
-                obj.TempDataFileObj.ROIMatBLK = Data{end};
-                Data(end) = [];
-            end
             obj.TempDataFileObj.ROIMat = vertcat(Data{:});
         end
 
@@ -1780,21 +1765,26 @@ classdef RawData
             time = obj.TempDataFileObj.TimeCells;
             msRoi = obj.TempDataFileObj.ROICells;
             paddedSize = zeros(size(msRoi));
+            % remove padding from time vector and calculate scan frequency
             timeTemp = horzcat(time{:});
-            timeTemp(any(timeTemp==0,2),:) = [];
+            timeTemp(any(timeTemp==0,2),:) = []; 
             obj.scanFrequencySecond = mean(diff(timeTemp),'all');
+            % pad roi matrix at the end with zeros equaling spacing of 
+            % 1.5x max peak width, to prevent overlap in CWT peak detection
             MAX_PEAK_WIDTH = round(obj.peakMaxWidth*1.5/obj.scanFrequencySecond);
             parfor iFile = 1:size(msRoi,1)
                 msTemp = msRoi{iFile,1};
+                % set negative and NaN values to 0
                 msTemp = max(msTemp,0);
                 msTemp(isnan(msTemp)) = 0;
+                % pad with zeros
                 msTemp = padarray(msTemp,MAX_PEAK_WIDTH,0,'post');
-                msRoi{iFile,1} = msTemp;
                 time{iFile,1} = padarray(time{iFile,1},MAX_PEAK_WIDTH,0,'post');
-                paddedSize(iFile) = length(time{iFile,1});
+                msRoi{iFile,1} = msTemp;
+                
+                paddedSize(iFile) = numel(time{iFile,1});
             end
             obj.nScanPadded = paddedSize;
-            obj.nScan(length(paddedSize)+1:end) = [];
             msTemp = vertcat(msRoi{:});
             msTemp = max(msTemp,0);
             %remove empty columns
@@ -1952,7 +1942,7 @@ classdef RawData
             %% gathers MS1 spectra for each feature
             OutputStruct = FeatureStruct;
             % load data
-            allDataStruct = obj.RawDataFileObj;
+            allDataStruct = obj.RawDataFileObj(obj.isSampleFile);
             % preallocation
             nFile = numel(allDataStruct);
             allScans = cell(nFile,1);
@@ -1991,7 +1981,7 @@ classdef RawData
 
         function [Output,sumFiltered] = occurrenceFilterFeatures(obj,FeatureStruct)
             %% remove features with less peaks than required minimum from Output struct
-            nFile = numel(obj.dataFile);
+            nFile = sum(obj.isSampleFile);
             minDataPoints = ceil(nFile*obj.minOccurence);
             numElements = zeros(length(FeatureStruct),1);
 
@@ -2029,7 +2019,7 @@ classdef RawData
 
             Output.fileNames = obj.fileName;
             Output.groupName = obj.groupName;
-            Output.separationType = obj.separationType;
+            Output.separationType = obj.separationType; %#ok<MCNPN>
 
         end
 
@@ -2697,20 +2687,19 @@ classdef RawData
         end
 
         function FeatureStruct = correctMassByChargeState(FeatureStruct)
-
-            function outputStruct = finalizeEISpectra(inputStruct)
-                %% merges all found EI fragment spectra (all files) into an average spectrum
-                outputStruct = inputStruct;
-                for n = 1:length(inputStruct)
-                    outputStruct(n).spectrumMS2 = alignSpectra(inputStruct(n).spectrumMS2,"average","low","true");
-                end
-            end
-
             %% uses charge state information to adjust the mass of each feature
             parfor iFeature = 1:height(FeatureStruct)
                 if FeatureStruct(iFeature).chargeState > 0
                     FeatureStruct(iFeature).mass_corrected = FeatureStruct(iFeature).mass_measured * FeatureStruct(iFeature).chargeState;
                 end
+            end
+        end
+
+        function outputStruct = finalizeEISpectra(inputStruct)
+            %% merges all found EI fragment spectra (all files) into an average spectrum
+            outputStruct = inputStruct;
+            for n = 1:length(inputStruct)
+                outputStruct(n).spectrumMS2 = alignSpectra(inputStruct(n).spectrumMS2,"average","low","true");
             end
         end
     end
