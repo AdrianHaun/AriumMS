@@ -36,16 +36,14 @@ classdef RawData
         baselineRegressionMethod    (1,1) string {mustBeMember(baselineRegressionMethod,["pchip","linear","spline"])} = "pchip"
         baselineEstimationMethod    (1,1) string {mustBeMember(baselineEstimationMethod,["quantile","em"])} = "em"
         baselineQuantil             (1,1) double {mustBeInRange(baselineQuantil,0,1)} = 0.1
-        %Golay Parameters
+        % Golay Parameters
         smoothingFrameSize  (1,1) double {mustBeInteger,mustBePositive} = 20
         smoothingDegree     (1,1) double {mustBeInteger,mustBePositive} = 2
         % Internal Standard Data
         nInternalStandard     (1,1) double {mustBeInteger,mustBePositive} = 1
         internalStandardData  (:,3) double
         useISMassCorrection   (1,1) logical = false
-        applyISto             (1,1) string {mustBeMember(applyISto,["S&B","SOnly"])} = "SOnly"
-        internalStandardOrder (1,1) string {mustBeMember(internalStandardOrder,["BlankIS","ISBlank"])} = "ISBlank"
-        %Adduct Parameters
+        % Adduct Parameters
         scanPolarity        (1,1) string {mustBeMember(scanPolarity,["positive","negative","both"])} = "positive"
         minCosineSimilarity (1,1) double {mustBeInRange(minCosineSimilarity,0,1)} = 0.85
         adductSelectedPos   (30,1) logical = false        %Structure: 1:12 Single Charged, 13:18 Dimers, 19:26 DoubleCharged, 27:30 TripleCharged
@@ -88,6 +86,7 @@ classdef RawData
         nScan              (:,1) double {mustBeInteger,mustBePositive}
         nScanPadded        (:,1) double {mustBeInteger,mustBePositive}
         occurenceFiltered  (1,1) double {mustBeInteger} = 0
+        isSampleFile       (:,1) logical = true
         %FileInfos
         DataInfo             (1,:) struct
         scanFrequencySecond  (1,1) double
@@ -124,6 +123,7 @@ classdef RawData
         function obj = readData(obj)
             files = obj.dataFile;
             nFile = size(files,1);
+            obj.isSampleFile = true(nFile,1);
             %preallocation
             MSData = struct('file',[],...
                 'startTimeStamp',[],...
@@ -1149,10 +1149,9 @@ classdef RawData
             % remove processed blank data
             timeCells(isSystemBlank) = []; 
             obj.nScan(isSystemBlank) = [];
-            obj.sampleScale(isSystemBlank) = [];
-            dataType(isSystemBlank) = [];
-            obj.RawDataFileObj(isSystemBlank) = [];
 
+            % flag files as non sample
+            obj.isSampleFile(isSystemBlank) = false;
             %% subtract process blanks from segments between blanks
 
             % Find indices of "process blank"
@@ -1192,11 +1191,10 @@ classdef RawData
             timeCells(blankIdx) = [];
             roiCells(blankIdx) = [];
             obj.nScan(blankIdx) = [];
-            obj.sampleScale(blankIdx) = [];
-            dataType(blankIdx) = [];
-            obj.fileType = dataType;
+            % flag files as non sample
+            obj.isSampleFile(blankIdx) = false;
+
             % store corrected data on disk
-            obj.RawDataFileObj(blankIdx) = [];
             obj.TempDataFileObj.TimeCells = timeCells;
             obj.TempDataFileObj.ROICells = roiCells;
         end
