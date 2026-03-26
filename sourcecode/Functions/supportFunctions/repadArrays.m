@@ -1,35 +1,52 @@
-function [arrayOut,vecOut] = repadArrays(arrayIn,vecIn,padSize)
-%% repadArrays adds zero padding to array and vector to match padSize
+function [arrayOut, vecOut] = repadArrays(arrayIn, vecIn, padSize)
+%% repadArrays Add zero padding to a matrix and a vector to match a given height.
 %
-% inputs:   arrayIn: double matrix
-%           vecIn: double column vector
-%           padSize: height of outputs
-% outputs:  arrayOut: double matrix padded with zeros to height of padSize
-%           vecOut: double column vector padded with zeros to height of padSize
+% repadArrays pads the input matrix arrayIn and column vector vecIn with zeros
+% at the bottom so that the number of rows of the outputs equals padSize.
+%
+% Inputs:
+%   arrayIn  - double matrix. Number of rows defines original height.
+%   vecIn    - double column vector. Must have same number of rows as arrayIn.
+%   padSize  - scalar integer specifying desired number of rows for outputs.
+%
+% Outputs:
+%   arrayOut - double matrix padded with zeros to have padSize rows.
+%   vecOut   - double column vector padded with zeros to have padSize rows.
+%
+% The function assumes padSize is greater than or equal to the height of
+% the inputs. Use repadArrays when you need to align array and vector
+% sizes by zero-padding them to a common row count.
 
 arguments
     arrayIn (:,:) double
-    vecIn   (:,1) double {mustBeSameHeight(arrayIn,vecIn)}
-    padSize (1,1) {mustBeInteger,mustBeBiggerThan(padSize,vecIn)}
+    vecIn   (:,1) double {mustBeSameHeight(arrayIn, vecIn)}
+    padSize (1,1) {mustBeInteger, mustBeBiggerThan(padSize, vecIn)}
 end
 
-orginalHeight = height(arrayIn);
-arrayOut = padarray(arrayIn,padSize-orginalHeight,0,'post');
-vecOut = padarray(vecIn,padSize-orginalHeight,0,'post');
+originalHeight = size(arrayIn, 1);
+
+arrayOut = padarray(arrayIn, padSize - originalHeight, 0, 'post');
+vecOut   = padarray(vecIn,   padSize - originalHeight, 0, 'post');
+
+end
+
 
 %% Validation functions
-function mustBeSameHeight(matrix,vector)
-% Test for equal height
-    if ~isequal(height(matrix),height(vector))
+function mustBeSameHeight(matrix, vector)
+% mustBeSameHeight Validate that matrix and vector have the same height.
+    if ~isequal(size(matrix, 1), size(vector, 1))
         eid = 'Size:notEqual';
-        msg = 'Height of first input must equal size of second input.';
-        error(eid,msg)
+        msg = 'Height (number of rows) of the first input must equal that of the second input.';
+        error(eid, msg)
     end
+end
 
-function mustBeBiggerThan(input,vector)
-% Test if padSize is set correctly
-    if input < height(vector)
+
+function mustBeBiggerThan(inputValue, vector)
+% mustBeBiggerThan Validate that padSize is not smaller than the vector height.
+    if inputValue < size(vector, 1)
         eid = 'Value:tooLow';
-        msg = 'padSize must be greater than height of other inputs';
-        error(eid,msg)
+        msg = 'padSize must be greater than or equal to the height of the inputs.';
+        error(eid, msg)
     end
+end

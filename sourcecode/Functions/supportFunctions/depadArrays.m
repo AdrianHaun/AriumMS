@@ -1,29 +1,40 @@
-function [arrayOut,vecOut] = depadArrays(arrayIn,vecIn)
-%% depadArrays removes zero padding from input matrix and vector
-% 
-% Uses zeros in vecIn to define the padding regions and removes them from
-% both inputs
+function [arrayOut, vecOut] = depadArrays(arrayIn, vecIn)
+%% depadArrays Remove zero-padding rows based on a column vector.
+%  depadArrays(arrayIn, vecIn) removes rows of arrayIn where the
+%  corresponding entry of vecIn is zero, returning depadded versions
+%  of both arrayIn and vecIn.
 %
-% inputs:   arrayIn: double matrix
-%           vecIn: double column vector
+%  Inputs:
+%    arrayIn : double matrix
+%    vecIn   : double column vector, same number of rows as arrayIn.
+%
+%  Outputs:
+%    arrayOut : double matrix without zero-padded rows.
+%    vecOut   : double column vector without zero elements.
+%
+%  [arrayOut, vecOut] = depadArrays(arrayIn, vecIn)
 
-% outputs:  arrayOut: double matrix without padding
-%           vecOut: double column vector without padding
-
-arguments
-    arrayIn (:,:) double
-    vecIn   (:,1) double {mustBeSameHeight(arrayIn,vecIn)}
-end
-
-idx = vecIn ~= 0;
-arrayOut = arrayIn(idx,:);
-vecOut = vecIn(idx);
-
-%% Validation function
-function mustBeSameHeight(matrix,vector)
-% Test for equal height
-    if ~isequal(height(matrix),height(vector))
-        eid = 'Size:notEqual';
-        msg = 'Height of first input must equal size of second input.';
-        error(eid,msg)
+    arguments
+        arrayIn (:,:) double
+        vecIn   (:,1) double {mustBeSameHeight(arrayIn, vecIn)}
     end
+
+    % Logical index for non-zero entries in vecIn.
+    idx      = (vecIn ~= 0);
+    arrayOut = arrayIn(idx, :);
+    vecOut   = vecIn(idx);
+
+end  % function depadArrays
+
+
+%% Local validation function
+function mustBeSameHeight(matrix, vector)
+% mustBeSameHeight Validate that two arrays have the same number of rows.
+
+    if size(matrix, 1) ~= size(vector, 1)
+        eid = 'Size:notEqual';
+        msg = 'Inputs must have the same height (number of rows).';
+        error(eid, msg)
+    end
+
+end  % function mustBeSameHeight

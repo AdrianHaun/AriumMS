@@ -121,67 +121,117 @@ classdef RawData
         %% Handling MS files
 
         function obj = readData(obj)
-            files = obj.dataFile;
-            nFile = size(files,1);
-            obj.isSampleFile = true(nFile,1);
-            %preallocation
-            MSData = struct('file',[],...
-                'startTimeStamp',[],...
-                'nSpectra',[],...
-                'spectraMS1',[],...
-                'spectraMS2',[]);
-            
-             FileInfo =  struct('numberOfScansMS1',[],...
-                'numberOfScansMSn',[],...
-                'startTime',[],...
-                'endTime',[],...
-                'scanFrequencyMS1',[],...
-                'scanFrequencyMSn',[]);
+            % readData  Read raw mzML data files listed in obj.dataFile into the object.
+            %
+            %   OBJ = readData(OBJ) reads all mzML files specified in OBJ.dataFile,
+            %   collects basic scan information (number of scans, start/end times,
+            %   scan frequencies), sorts the data by start time stamp, determines
+            %   file types, and stores the results in OBJ.DataInfo and OBJ.RawDataFileObj.
 
+            % Validate input file list.
+            files = obj.dataFile;
+            if isempty(files)
+                error('RawData:readData:NoFiles', ...
+                    'obj.dataFile is empty. No files to read.');
+            end
+            if ~iscell(files)
+                error('RawData:readData:InvalidFileList', ...
+                    'obj.dataFile must be a cell array of file names.');
+            end
+
+            nFile = numel(files);
+
+            % Initialize file type flags (may be updated later by determineFileType).
+            obj.isSampleFile = true(nFile, 1);
+
+            % Preallocate MS data struct array.
+            MSDataTemplate = struct( ...
+                'file',            [], ...
+                'startTimeStamp',  [], ...
+                'nSpectra',        [], ...
+                'spectraMS1',      [], ...
+                'spectraMS2',      []);
+
+            MSData = repmat(MSDataTemplate, nFile, 1);
+
+            % Preallocate file summary information struct array.
+            FileInfoTemplate = struct( ...
+                'numberOfScansMS1',  [], ...
+                'numberOfScansMSn',  [], ...
+                'startTime',         [], ...
+                'endTime',           [], ...
+                'scanFrequencyMS1',  [], ...
+                'scanFrequencyMSn',  []);
+
+            FileInfo = repmat(FileInfoTemplate, nFile, 1);
+
+            % Read each file and populate MSData and FileInfo.
             parfor iFile = 1:nFile
-                % read file into struct
                 currentFile = importMZML(files{iFile});
 
-                % gather scan infos
-                FileInfo(iFile).numberOfScansMS1 = numel([currentFile.spectraMS1]);
-                FileInfo(iFile).numberOfScansMSn = numel([currentFile.spectraMS2]);
+                % Basic validation of spectraMS1.
+                if ~isfield(currentFile, 'spectraMS1') || isempty(currentFile.spectraMS1)
+                    error('RawData:readData:MissingSpectraMS1', ...
+                        'File "%s" has no spectraMS1 data.', files{iFile});
+                end
+
+                % Count scans.
+                FileInfo(iFile).numberOfScansMS1 = numel(currentFile.spectraMS1);
+                if isfield(currentFile, 'spectraMS2') && ~isempty(currentFile.spectraMS2)
+                    FileInfo(iFile).numberOfScansMSn = numel(currentFile.spectraMS2);
+                else
+                    FileInfo(iFile).numberOfScansMSn = 0;
+                end
+
+                % Start / end time from MS1.
                 FileInfo(iFile).startTime = currentFile.spectraMS1(1).rt;
-                FileInfo(iFile).endTime = currentFile.spectraMS1(end).rt;
-                
+                FileInfo(iFile).endTime   = currentFile.spectraMS1(end).rt;
+
+                % Store full MS data struct.
                 MSData(iFile) = currentFile;
             end
 
-            % calculate Scan Frequency [Hz]
-            scanFrequencyHertz = [FileInfo.numberOfScansMS1]./([FileInfo.endTime]-[FileInfo.startTime]);
-            scanFrequencyHertz = num2cell(scanFrequencyHertz);
-            [FileInfo.scanFrequencyMS1] = scanFrequencyHertz{:};
-            scanFrequencyHertz = [FileInfo.numberOfScansMSn]./([FileInfo.endTime]-[FileInfo.startTime]);
-            scanFrequencyHertz = num2cell(scanFrequencyHertz);
-            [FileInfo.scanFrequencyMSn] = scanFrequencyHertz{:};
-            obj.DataInfo = FileInfo;
-            obj.measurementStartTime = round(min([FileInfo.startTime]),1);
-            obj.measurementEndTime = round(max([FileInfo.endTime]),1);
+            % Compute scan frequencies [Hz] for MS1 and MSn.
+            duration = [FileInfo.endTime] - [FileInfo.startTime];
 
-            % sort MS data based on start time stamp
-            [~, idx] = sort([MSData.startTimeStamp]);    % ascending
-            % apply sort to struct
+            if any(duration <= 0)
+                error('RawData:readData:NonPositiveDuration', ...
+                    'At least one file has non-positive acquisition duration.');
+            end
+
+            scanFrequencyHertzMS1 = [FileInfo.numberOfScansMS1] ./ duration;
+            scanFrequencyHertzMSn = [FileInfo.numberOfScansMSn] ./ duration;
+
+            % Assign into struct array fields using comma-list expansion.
+            scanFrequencyHertzMS1Cell = num2cell(scanFrequencyHertzMS1);
+            [FileInfo.scanFrequencyMS1] = scanFrequencyHertzMS1Cell{:};
+
+            scanFrequencyHertzMSnCell = num2cell(scanFrequencyHertzMSn);
+            [FileInfo.scanFrequencyMSn] = scanFrequencyHertzMSnCell{:};
+
+            % Store file-level information and overall measurement window.
+            obj.DataInfo = FileInfo;
+            obj.measurementStartTime = round(min([FileInfo.startTime]), 1);
+            obj.measurementEndTime   = round(max([FileInfo.endTime]), 1);
+
+            % Sort MS data based on start time stamp (ascending).
+            [~, idx] = sort([MSData.startTimeStamp]);
             MSData = MSData(idx);
 
-            % %% Change timestamps for test sequence data
+            % Optional manual timestamp adjustments (test data).
             % MSData(4).startTimeStamp(1) = '30-Aug-2023 20:00:00';
             % MSData(5).startTimeStamp(1) = '30-Aug-2023 23:50:01';
             % MSData(6).startTimeStamp(1) = '31-Aug-2023 03:00:52';
             % [~, idx] = sort([MSData.startTimeStamp]);    % ascending
-            % % apply sort to struct
             % MSData = MSData(idx);
             % obj.fileName = {MSData.file}';
 
-            % determine file type (blank,QC,sample)
+            % Determine file type (blank, QC, sample).
             obj = obj.determineFileType;
-            
+
+            % Store raw data objects.
             obj.RawDataFileObj = MSData;
         end
-
         %% Data Processing
         function [Output,obj] = extractFeaturesFromMassData(obj,varargin)
             %check if old results exist and delete them
@@ -199,9 +249,9 @@ classdef RawData
                 title = "Processing " + obj.groupName;
                 progressBar = uiprogressdlg(obj.mainWindow,"Title",title,"Message","Preparation",Value=0);
             end
-            
+
             obj = obj.initializeTemporaryFile;
-            
+
             %remove scans outside RT range
             progressBar.Value = 0.1;
             progressBar.Message = "Loading data";
@@ -278,7 +328,7 @@ classdef RawData
                 obj = obj.alignPeaks("batch");
                 progressBar.Value = progressBar.Value + 0.05;
             end
-            
+
             % Blank Correction
             if any(contains(obj.fileType,"blank"))
                 progressBar.Message = "Subtracting Blank";
@@ -338,7 +388,7 @@ classdef RawData
                 case "Soft"
                     [FeatureData,obj] = obj.buildFeatureArray_Soft(IntegrationData,false); %% WIP %%
             end
-           
+
             clearvars IntegrationData
 
             % apply scaling
@@ -358,24 +408,29 @@ classdef RawData
         end
 
         function obj = determineFileType(obj)
-            % determine file type (blank, QC sample) from file name
-            dataType = strings(size(obj.fileName));
-            dataType(1:end) = "sample";
+            % determineFileType  Determine file type (sample, QC, blank) from fileName.
+            %   OBJ = determineFileType(OBJ) inspects OBJ.fileName and sets OBJ.fileType
+            %   to "sample", "QC", "suitability QC", "process blank" or "suitability blank"
+            %   based on case-insensitive matches in the file names.
 
             name = obj.fileName;
 
-            % check filename for 'Blank' or 'QC' (case-insensitive)
-            idxBlankProcess = contains(name,["ProcessBlank","Blank"],"IgnoreCase",true);
-            idxBlankSystem = contains(name,["BW","SystemBlank"],"IgnoreCase",true);
-            idxQC = contains(name,["50uM_MS","QC","Control","PooledQC"],"IgnoreCase",true);
-            idxSystemSuitability = contains(name,"Suitability","IgnoreCase",true);
+            % Default: all entries are samples.
+            dataType = repmat("sample", size(name));
 
-            dataType(idxQC) = "QC";
+            % Check file names for blank and QC indicators (case-insensitive).
+            idxBlankProcess      = contains(name, ["ProcessBlank","Blank"],              "IgnoreCase", true);
+            idxBlankSystem       = contains(name, ["BW","SystemBlank"],                  "IgnoreCase", true);
+            idxQC                = contains(name, ["50uM_MS","QC","Control","PooledQC"], "IgnoreCase", true);
+            idxSystemSuitability = contains(name, "Suitability",                          "IgnoreCase", true);
+
+            % Assign file types. Later assignments override earlier ones for overlapping matches.
+            dataType(idxQC)                = "QC";
             dataType(idxSystemSuitability) = "suitability QC";
-            dataType(idxBlankProcess) = "process blank";
-            dataType(idxBlankSystem) = "suitability blank";
-            obj.fileType = dataType;
+            dataType(idxBlankProcess)      = "process blank";
+            dataType(idxBlankSystem)       = "suitability blank";
 
+            obj.fileType = dataType;
         end
 
         function IntegrationResults = findPeaks_Soft(obj,Index)
@@ -441,7 +496,7 @@ classdef RawData
         function [FeatureResults,obj] = buildFeatureArray_Soft(obj,IntegrationResults,isISIntegration)
 
             FeatureResults = rmfield(IntegrationResults,["minWidthFiltered","maxWidthFiltered","entropyFiltered","signal2NoiseFiltered"]);
-            
+
             %check for empty IntegrationResults
             if ~isempty(IntegrationResults)
 
@@ -565,7 +620,7 @@ classdef RawData
                                 currentFeatureStruct = storeInNewFeat(currentFeatureStruct,currentFile,peakData);
                             end
                         end
-                        
+
                         %remove stored peak from list
                         peakData(1,:) = [];
                     end
@@ -680,7 +735,7 @@ classdef RawData
                 end
                 progressBar.Value = progressBar.Value + 0.05;
             end
-            
+
             % mass correction
             if obj.useInternalStandard == true && ~isempty(obj.interalStandardIntensity)
                 progressBar.Message = "Performing IS mass correction";
@@ -925,7 +980,7 @@ classdef RawData
         %% Furter Processing
         function outputStruct = gatherMS2Spectra(obj,FeatureStruct)
             %check if MSn data exists, skip if not
-            
+
             if isempty([obj.RawDataFileObj.spectraMS2])
                 outputStruct = FeatureStruct;
                 return
@@ -1136,10 +1191,10 @@ classdef RawData
                 roiCells{iFile,1} = max(roiCells{iFile,1} - blankMat,0);
             end
 
-            % save 
+            % save
             obj.TempDataFileObj.ROIMatSystemBLK = sparse(blankMat);
             % remove processed blank data
-            timeCells(isSystemBlank) = []; 
+            timeCells(isSystemBlank) = [];
             obj.nScan(isSystemBlank) = [];
 
             % flag files as non sample
@@ -1171,14 +1226,14 @@ classdef RawData
                     continue
                 else
 
-                % Subtract from all following cells in this block
-                for jFile = startIdx:endIdx
-                    roiCells{jFile} = max(roiCells{jFile} - blankMat,0);
-                end
+                    % Subtract from all following cells in this block
+                    for jFile = startIdx:endIdx
+                        roiCells{jFile} = max(roiCells{jFile} - blankMat,0);
+                    end
                 end
             end
             obj.TempDataFileObj.ROIMatProcessBLK = roiCells(blankIdx);
-            
+
             %remove processed blank data from obj
             timeCells(blankIdx) = [];
             roiCells(blankIdx) = [];
@@ -1577,64 +1632,126 @@ classdef RawData
             obj.TempDataFileObj.TimeCells = tempTimeData;
         end
 
-        function obj = findRegionOfInterest(obj,modeFlag)
-            %% AutoROI Performs fully automated ROI search and augmentation.
+        function obj = findRegionOfInterest(obj, modeFlag)
+            %FINDREGIONOFINTEREST Compute and augment ROIs, updating TempDataFileObj.
+            %
+            %   OBJ = FINDREGIONOFINTEREST(OBJ, MODEFLAG) computes regions of interest
+            %   (ROIs) from TempDataFileObj.ROICells / TimeCells and stores the
+            %   processed ROIs, times and m/z vector back into TempDataFileObj.
+            %
+            %   MODEFLAG:
+            %       "batch" - process all samples and pad outputs to uniform length.
+            %       other   - process only the first sample and apply smoothing.
+
+            %% Validate modeFlag
+            if ~isstring(modeFlag) && ~ischar(modeFlag)
+                error('findRegionOfInterest:InvalidModeFlag', ...
+                    'modeFlag must be a string or char scalar.');
+            end
+            modeFlag = string(modeFlag);
+
+            %% Select peak and time lists depending on mode
             switch modeFlag
                 case "batch"
                     peakList = obj.TempDataFileObj.ROICells;
                     timeList = obj.TempDataFileObj.TimeCells;
                 otherwise
-                    peakList = obj.TempDataFileObj.ROICells(1,1);
-                    timeList = obj.TempDataFileObj.TimeCells(1,1);
-            end
-            THRESHOLD = obj.roiThreshold;
-            MIN_SIZE = obj.roiMinOccurrence;
-            MASS_ERROR = obj.withinFileMassTolerance;
-            MASS_ERROR_UNIT = obj.withinFileMassUnit;
-
-            %preallocate cell arrays
-            mzlist = cell(length(peakList),1);
-            msRoiList = cell(length(peakList),1);
-
-            %ROI search for every Sample
-            parfor iFile = 1:length(peakList)
-                currentPeak = peakList{iFile,1};
-                currentTime = timeList{iFile,1};
-                [mzlist{iFile,1},msRoiList{iFile,1},~] = ROIpeaks3(currentPeak,THRESHOLD,MASS_ERROR,MASS_ERROR_UNIT,MIN_SIZE,currentTime);
+                    peakList = obj.TempDataFileObj.ROICells(1, 1);
+                    timeList = obj.TempDataFileObj.TimeCells(1, 1);
             end
 
-            if numel(mzlist) > 1
-                for iFile = 2:size(peakList,1)
-                    [msRoiList{1,1},mzlist{1,1},timeList{1,1}] = MSroiaug3(msRoiList{1,1},msRoiList{iFile,1},mzlist{1,1},mzlist{iFile,1},MASS_ERROR,MASS_ERROR_UNIT,THRESHOLD,timeList{1,1},timeList{iFile,1});
+            % Early exit if there is nothing to process.
+            if isempty(peakList)
+                warning('findRegionOfInterest:EmptyPeakList', ...
+                    'TempDataFileObj.ROICells is empty. No ROIs computed.');
+                return;
+            end
+
+            %% Copy configuration constants from object
+            THRESHOLD        = obj.roiThreshold;
+            MIN_SIZE         = obj.roiMinOccurrence;
+            MASS_ERROR       = obj.withinFileMassTolerance;
+            MASS_ERROR_UNIT  = obj.withinFileMassUnit;
+            SMOOTH_WIN_SIZE  = 3;  % Window length for Gaussian smoothing.
+
+            %% Preallocate cell arrays for per-sample ROIs
+            nFiles   = length(peakList);
+            mzList   = cell(nFiles, 1);
+            msRoiList = cell(nFiles, 1);
+
+            %% ROI search for every sample (parallel)
+            parfor iFile = 1:nFiles
+                currentPeak = peakList{iFile, 1};
+                currentTime = timeList{iFile, 1};
+
+                [mzList{iFile, 1}, msRoiList{iFile, 1}] = ...
+                    ROIpeaks3(currentPeak, THRESHOLD, MASS_ERROR, ...
+                    MASS_ERROR_UNIT, MIN_SIZE, currentTime);
+            end
+
+            %% ROI augmentation across samples (if more than one)
+            if nFiles > 1
+                for iFile = 2:nFiles
+                    [msRoiList{1, 1}, mzList{1, 1}, timeList{1, 1}] = ...
+                        MSroiaug3( msRoiList{1, 1}, msRoiList{iFile, 1}, ...
+                        mzList{1, 1},   mzList{iFile, 1}, ...
+                        MASS_ERROR, MASS_ERROR_UNIT, THRESHOLD, ...
+                        timeList{1, 1}, timeList{iFile, 1} );
                 end
-                msRoi_end = msRoiList{1,1};
-                mzroi_end = mzlist{1,1};
-                time_end = timeList{1,1};
-            else %Skip Augmentation if only one Sample
-                msRoi_end = msRoiList{1,1};
-                mzroi_end = mzlist{1,1};
-                time_end = timeList{1,1};
+                msRoiMerged  = msRoiList{1, 1};
+                mzRoiMerged  = mzList{1, 1};
+                timeMerged   = timeList{1, 1};
+            else
+                % Skip augmentation if only one sample.
+                msRoiMerged  = msRoiList{1, 1};
+                mzRoiMerged  = mzList{1, 1};
+                timeMerged   = timeList{1, 1};
             end
 
-            msRoi_end = msRoi_end-obj.roiThreshold; %subtract intensity threshold
-            msRoi_end = max(msRoi_end,0); %set every negative intensity to 0
+            %% Subtract intensity threshold and clip negatives
+            msRoiMerged = msRoiMerged - THRESHOLD;  % Subtract intensity threshold.
+            msRoiMerged = max(msRoiMerged, 0);      % Set every negative intensity to 0.
 
-            if strcmp(modeFlag,"batch") %split and pad matrices
-                outROI = mat2cell(msRoi_end,obj.nScan);
-                outTime = mat2cell(time_end,obj.nScan);
-                maxScan = max(obj.nScan);
-                scanNumberArray = obj.nScan;
-                parfor iFile = 1:size(outROI,1)
-                    outROI{iFile,1} = padarray(outROI{iFile,1},maxScan-scanNumberArray(iFile,1),0,'post');
-                    outTime{iFile,1} = padarray(outTime{iFile,1},maxScan-scanNumberArray(iFile,1),0,'post');
+            %% Prepare output ROIs and times depending on mode
+            if modeFlag == "batch"
+                % Split and pad matrices back into per-sample cells.
+                if ~isfield(obj, 'nScan')
+                    error('findRegionOfInterest:MissingNScan', ...
+                        'obj.nScan must be defined in batch mode.');
+                end
+
+                nScanArray = obj.nScan(:);  % Ensure column vector.
+                if sum(nScanArray) ~= size(msRoiMerged, 1)
+                    error('findRegionOfInterest:SizeMismatch', ...
+                        ['Sum(obj.nScan) (%d) does not match number of rows in ' ...
+                        'msRoiMerged (%d).'], ...
+                        sum(nScanArray), size(msRoiMerged, 1));
+                end
+
+                outROI  = mat2cell(msRoiMerged, nScanArray);
+                outTime = mat2cell(timeMerged, nScanArray);
+
+                maxScan = max(nScanArray);
+
+                parfor iFile = 1:numel(outROI)
+                    padRows = maxScan - nScanArray(iFile);
+                    if padRows > 0
+                        outROI{iFile, 1}  = padarray(outROI{iFile, 1},  padRows, 0, 'post');
+                        outTime{iFile, 1} = padarray(outTime{iFile, 1}, padRows, 0, 'post');
+                    end
                 end
             else
-                outROI{1,1} = smoothdata(msRoi_end,"gaussian",3); %apply slight smoothing, to remove gaps within peaks
-                outTime{1,1} = time_end;
+                % Single sample: apply slight smoothing to remove gaps within peaks.
+                outROI  = cell(1, 1);
+                outTime = cell(1, 1);
+                outROI{1, 1}  = smoothdata(msRoiMerged, "gaussian", SMOOTH_WIN_SIZE);
+                outTime{1, 1} = timeMerged;
             end
-            obj.TempDataFileObj.ROICells = outROI;
+
+            %% Update local temporary File object with results
+            obj.TempDataFileObj.ROICells  = outROI;
             obj.TempDataFileObj.TimeCells = outTime;
-            obj.TempDataFileObj.ROImzVec = mzroi_end;
+            obj.TempDataFileObj.ROImzVec  = mzRoiMerged;
         end
 
         function obj = alignMasses(obj,modeFlag)
@@ -1767,9 +1884,9 @@ classdef RawData
             paddedSize = zeros(size(msRoi));
             % remove padding from time vector and calculate scan frequency
             timeTemp = horzcat(time{:});
-            timeTemp(any(timeTemp==0,2),:) = []; 
+            timeTemp(any(timeTemp==0,2),:) = [];
             obj.scanFrequencySecond = mean(diff(timeTemp),'all');
-            % pad roi matrix at the end with zeros equaling spacing of 
+            % pad roi matrix at the end with zeros equaling spacing of
             % 1.5x max peak width, to prevent overlap in CWT peak detection
             MAX_PEAK_WIDTH = round(obj.peakMaxWidth*1.5/obj.scanFrequencySecond);
             parfor iFile = 1:size(msRoi,1)
@@ -1781,7 +1898,7 @@ classdef RawData
                 msTemp = padarray(msTemp,MAX_PEAK_WIDTH,0,'post');
                 time{iFile,1} = padarray(time{iFile,1},MAX_PEAK_WIDTH,0,'post');
                 msRoi{iFile,1} = msTemp;
-                
+
                 paddedSize(iFile) = numel(time{iFile,1});
             end
             obj.nScanPadded = paddedSize;
@@ -1954,7 +2071,7 @@ classdef RawData
                 allScans{iScan,1} = temp;
             end
             allScans = vertcat(allScans{:});
-            
+
             %% find original MS1 spectra
             parfor iFeature = 1:numel(FeatureStruct)
                 spectra = cell(1,nFile);
@@ -2054,7 +2171,7 @@ classdef RawData
                     end
 
                 otherwise %ESI
-                    
+
                     % determine Adduct type
 
                     % calculate corrected mass based on adduct Type or Database
@@ -2062,10 +2179,10 @@ classdef RawData
                     % calculate formula
                     featureStruct = obj.calculateFormulaFromMass(featureStruct);
 
-                    
+
                     % ESI check ms1 spectrum
 
-                    
+
             end
             %store final struct
             Output.feature = featureStruct;
